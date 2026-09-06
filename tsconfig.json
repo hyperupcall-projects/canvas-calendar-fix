@@ -1,0 +1,21 @@
+{
+	"compilerOptions": {
+		"target": "es2022",
+		"module": "nodenext",
+		"moduleResolution": "nodenext",
+		"lib": ["es2022"],
+		"jsx": "react-jsx",
+		"jsxImportSource": "hono/jsx",
+		"strict": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"verbatimModuleSyntax": true,
+		"allowImportingTsExtensions": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"types": ["node"],
+		"noEmit": true,
+		"rootDir": "."
+	},
+	"include": ["src", "drizzle.config.ts"]
+}

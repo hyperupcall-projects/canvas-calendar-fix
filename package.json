@@ -1,0 +1,42 @@
+{
+  "name": "canvas-calendar-chooser",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "test": "tsx --test src/lib/ics.test.ts src/lib/canvas-url.test.ts src/admin-auth.test.ts src/app.test.ts src/views/dashboard.test.tsx src/db/schema.test.ts",
+    "lint": "hyperupcall-scripts-nodejs lint",
+    "format": "hyperupcall-scripts-nodejs format"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "^1.7.2",
+    "@hono/node-server": "^2.1.1",
+    "better-auth": "^1.7.2",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.13.5",
+    "ical-generator": "^11.1.1",
+    "iron-session": "^9.0.1",
+    "node-ical": "^0.27.1",
+    "resend": "^6.25.0"
+  },
+  "devDependencies": {
+    "@hyperupcall/scripts-nodejs": "0.10.0",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.4.0",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "markdownlint-cli2": {
+    "extends": "./node_modules/@hyperupcall/markdownlint-config/.markdownlint.json"
+  },
+  "prettier": "@hyperupcall/scripts-nodejs/config-prettier.js"
+}
