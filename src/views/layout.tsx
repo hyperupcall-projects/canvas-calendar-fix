@@ -24,7 +24,7 @@ export function Layout(props: {
 				<body>
 					<header class="pure-menu pure-menu-horizontal">
 						<a class="pure-menu-heading pure-menu-link" href="/">
-							Canvas Calendar Chooser
+							Canvas Calendar Fix
 						</a>
 						{props.nav}
 					</header>

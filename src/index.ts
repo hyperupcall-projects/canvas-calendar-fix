@@ -13,7 +13,7 @@ serve(
 	},
 	(info) => {
 		console.log(
-			`Canvas Calendar Chooser listening on http://localhost:${info.port}`,
+			`Canvas Calendar Fix listening on http://localhost:${info.port}`,
 		)
 	},
 )

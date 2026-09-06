@@ -80,21 +80,33 @@ export function DashboardPage(props: {
 				) : (
 					<div>
 						<p>
-							Each calendar is an independent subset of your classes and has its
-							own subscribe URL. The same class can appear in more than one
-							calendar.
+							Create an output calendar for each view that you'd like to have on your original calendar.
+							For example, you can create a separate "Class" and "TA" calendar.
+							The same class can appear in more than one calendar.
 						</p>
 						{props.outputs.map((output) => {
 							const enabled = new Set(output.enabledCodes)
 							return (
-								<div>
+								<div class="output-calendar">
+									<div class="output-calendar-bar">
+										<h3>{output.name}</h3>
+										{canRemove ? (
+											<form
+												method="post"
+												action={`/dashboard/outputs/${output.id}/delete`}
+											>
+												<button type="submit" class="pure-button">
+													Remove calendar
+												</button>
+											</form>
+										) : null}
+									</div>
 									<form
 										method="post"
 										action={`/dashboard/outputs/${output.id}`}
 										class="pure-form pure-form-stacked"
 									>
 										<fieldset>
-											<legend>{output.name}</legend>
 											<label>
 												Name
 												<input
@@ -109,24 +121,28 @@ export function DashboardPage(props: {
 												<p>No class codes were found in that Canvas feed.</p>
 											) : (
 												props.courses.map((course) => (
-													<>
+													<label class="pure-checkbox">
 														<input
 															type="hidden"
 															name="code"
 															value={course.code}
 														/>
-														<label class="pure-checkbox">
-															<input
-																type="checkbox"
-																name="enabled"
-																value={course.code}
-																checked={enabled.has(course.code)}
-															/>{' '}
-															{course.code}
-														</label>
-													</>
+														<input
+															type="checkbox"
+															name="enabled"
+															value={course.code}
+															checked={enabled.has(course.code)}
+														/>{' '}
+														{course.code}
+													</label>
 												))
 											)}
+											{props.courses.length > 0 && enabled.size === 0 ? (
+												<p>
+													No classes selected. This calendar will have no events
+													until you check at least one class and save.
+												</p>
+											) : null}
 											<label>
 												Subscribe URL
 												<input
@@ -148,16 +164,6 @@ export function DashboardPage(props: {
 											</button>
 										</fieldset>
 									</form>
-									{canRemove ? (
-										<form
-											method="post"
-											action={`/dashboard/outputs/${output.id}/delete`}
-										>
-											<button type="submit" class="pure-button">
-												Remove calendar
-											</button>
-										</form>
-									) : null}
 								</div>
 							)
 						})}

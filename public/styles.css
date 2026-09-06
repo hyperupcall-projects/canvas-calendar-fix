@@ -36,12 +36,10 @@ body {
 
 .banner.error {
 	background: mistyrose;
-	color: maroon;
-}
+	}
 
 .banner.success {
 	background: honeydew;
-	color: darkgreen;
 }
 
 .form-actions {
@@ -49,6 +47,26 @@ body {
 	flex-wrap: wrap;
 	gap: 0.5em;
 	margin-top: 0.5em;
+}
+
+.output-calendar {
+	margin: 1.25em 0 0;
+	padding: 1em;
+	border: 1px solid #ccc;
+	background: #fff;
+}
+
+.output-calendar-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75em;
+	margin-bottom: 0.75em;
+}
+
+.output-calendar-bar h3 {
+	margin: 0;
+	font-size: 1.1em;
 }
 
 .table-wrap {

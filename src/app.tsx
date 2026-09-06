@@ -444,7 +444,7 @@ app.post('/dashboard/outputs/:id', async (c) => {
 		)
 	}
 
-	const body = await c.req.parseBody()
+	const body = await c.req.parseBody({ all: true })
 	const name = sanitizeOutputName(String(body.name ?? ''), output.position)
 	const codes = asStringList(body.code)
 	const enabled = new Set(asStringList(body.enabled))

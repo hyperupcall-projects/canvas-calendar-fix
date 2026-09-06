@@ -23,15 +23,15 @@ export const auth = betterAuth({
 	},
 	plugins: [
 		magicLink({
-			expiresIn: 60 * 15,
+			expiresIn: 60 * 5,
 			sendMagicLink: async ({ email, url }) => {
 				const result = await resend.emails.send({
 					from: env.RESEND_FROM,
 					to: email,
-					subject: 'Sign in to Canvas Calendar Chooser',
+					subject: 'Sign in to Canvas Calendar Fix',
 					html: `
-            <p>Click the link below to sign in. It expires in 15 minutes.</p>
-            <p><a href="${url}">Sign in to Canvas Calendar Chooser</a></p>
+            <p>Click the link below to sign in. It expires in 5 minutes.</p>
+            <p><a href="${url}">Sign in to Canvas Calendar Fix</a></p>
             <p>If you did not request this, you can ignore this email.</p>
           `,
 				})

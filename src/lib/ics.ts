@@ -96,7 +96,7 @@ export function buildFilteredCalendar(
 		name: calendarName,
 		prodId: {
 			company: 'CSUMB',
-			product: 'Canvas Calendar Chooser',
+			product: 'Canvas Calendar Fix',
 		},
 	})
 
@@ -137,7 +137,7 @@ export async function fetchCalendarSource(
 			signal: controller.signal,
 			headers: {
 				accept: 'text/calendar, text/plain, */*',
-				'user-agent': 'CanvasCalendarChooser/1.0',
+				'user-agent': 'CanvasCalendarFix/1.0',
 			},
 			redirect: 'follow',
 		})

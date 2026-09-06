@@ -1,5 +1,5 @@
 {
-  "name": "canvas-calendar-chooser",
+  "name": "canvas-calendar-fix",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -28,6 +28,7 @@
     "resend": "^6.25.0"
   },
   "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10",
     "@hyperupcall/scripts-nodejs": "0.10.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.4.0",

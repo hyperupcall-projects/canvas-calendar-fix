@@ -5,7 +5,7 @@ export function SignInPage(props: { error?: string | null }) {
 		<Layout title="Sign in">
 			<section>
 				<h1>Sign in</h1>
-				<p>Enter your CSUMB email. We will send a sign-in link. No password.</p>
+				<p>Enter your CSUMB email to receive a sign-in link.</p>
 				<ErrorBanner message={props.error} />
 				<form
 					method="post"

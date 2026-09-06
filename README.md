@@ -1,4 +1,4 @@
-# Canvas Calendar Chooser
+# Canvas Calendar Fix
 
 Filter a CSUMB Canvas calendar feed down to the classes you actually want, then subscribe to up to four private ICS URLs in your own calendar app.
 

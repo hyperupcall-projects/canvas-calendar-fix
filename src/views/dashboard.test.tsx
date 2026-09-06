@@ -37,12 +37,19 @@ describe('DashboardPage', () => {
 		assert.match(html, /action="\/dashboard\/source"/)
 		assert.match(html, /formaction="\/dashboard\/source\/reset"/)
 		assert.match(html, /Reset calendar URL/)
+		assert.match(html, /class="output-calendar"/)
 		assert.match(html, /action="\/dashboard\/outputs\/out-1"/)
 		assert.match(html, /action="\/dashboard\/outputs\/out-2"/)
 		assert.match(html, /action="\/dashboard\/outputs\/out-1\/delete"/)
 		assert.match(html, /action="\/dashboard\/outputs"/)
 		assert.match(html, /Add another calendar/)
+		assert.match(html, /checked=""/)
 		assert.doesNotMatch(html, /<script/)
+		const labsIndex = html.indexOf('Labs only')
+		const firstRemove = html.indexOf('action="/dashboard/outputs/out-1/delete"')
+		const secondStart = html.indexOf('action="/dashboard/outputs/out-2"')
+		assert.ok(firstRemove > -1 && labsIndex > -1 && secondStart > firstRemove)
+		assert.ok(firstRemove < secondStart)
 	})
 
 	it('lets you add a second calendar but not remove the last one', async () => {
@@ -86,6 +93,7 @@ describe('DashboardPage', () => {
 		const html = await Promise.resolve(String(node))
 		assert.doesNotMatch(html, /Add another calendar/)
 		assert.match(html, /Remove calendar/)
+		assert.match(html, /No classes selected/)
 	})
 
 	it('hides reset until a Canvas calendar URL is saved', async () => {

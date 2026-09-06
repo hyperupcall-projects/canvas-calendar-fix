@@ -1,8 +1,10 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { loadEnvFile } from 'node:process'
 
-loadEnvFile()
+if (existsSync('.env')) {
+	loadEnvFile()
+}
 
 function required(name: string): string {
 	const value = process.env[name]?.trim()
