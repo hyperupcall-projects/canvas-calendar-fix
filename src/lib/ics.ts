@@ -8,10 +8,16 @@ const SOURCE_CACHE_MS = 60_000
 
 const sourceCache = new Map<string, { body: string; expiresAt: number }>()
 
+type DateWithMeta = Date & { dateOnly?: boolean }
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000
+const MS_PER_MINUTE = 60 * 1000
+
 export type ParsedEvent = {
 	uid: string
 	start: Date
 	end: Date
+	allDay: boolean
 	summary: string
 	description?: string
 	url?: string
@@ -46,6 +52,106 @@ function textValue(value: unknown): string {
 	return ''
 }
 
+function isUtcMidnight(date: Date): boolean {
+	return (
+		date.getUTCHours() === 0 &&
+		date.getUTCMinutes() === 0 &&
+		date.getUTCSeconds() === 0 &&
+		date.getUTCMilliseconds() === 0
+	)
+}
+
+function utcMidnightFromParts(
+	year: number,
+	monthIndex: number,
+	day: number,
+): Date {
+	return new Date(Date.UTC(year, monthIndex, day))
+}
+
+function asUtcMidnight(date: Date, useLocalDate: boolean): Date {
+	if (useLocalDate) {
+		return utcMidnightFromParts(
+			date.getFullYear(),
+			date.getMonth(),
+			date.getDate(),
+		)
+	}
+	return utcMidnightFromParts(
+		date.getUTCFullYear(),
+		date.getUTCMonth(),
+		date.getUTCDate(),
+	)
+}
+
+function addUtcDays(date: Date, days: number): Date {
+	return new Date(date.getTime() + days * MS_PER_DAY)
+}
+
+function isCanvasDateOnly(value: object, start: Date): boolean {
+	if ('datetype' in value && value.datetype === 'date') {
+		return true
+	}
+	return (start as DateWithMeta).dateOnly === true
+}
+
+function isUtcMidnightAllDaySpan(start: Date, end: Date): boolean {
+	return (
+		end.getTime() - start.getTime() === MS_PER_DAY &&
+		isUtcMidnight(start) &&
+		isUtcMidnight(end)
+	)
+}
+
+function exclusiveAllDayEnd(
+	start: Date,
+	end: Date,
+	useLocalDate: boolean,
+): Date {
+	const endMidnight = asUtcMidnight(end, useLocalDate)
+	if (endMidnight.getTime() <= start.getTime()) {
+		return addUtcDays(start, 1)
+	}
+	return endMidnight
+}
+
+function pinTimedEnd(start: Date, end: Date): Date {
+	if (end.getTime() > start.getTime()) {
+		return end
+	}
+	const candidate = new Date(start.getTime() + MS_PER_MINUTE)
+	if (
+		candidate.getUTCFullYear() !== start.getUTCFullYear() ||
+		candidate.getUTCMonth() !== start.getUTCMonth() ||
+		candidate.getUTCDate() !== start.getUTCDate()
+	) {
+		return start
+	}
+	return candidate
+}
+
+function normalizeEventTimes(
+	value: object,
+	start: Date,
+	end: Date,
+): { start: Date; end: Date; allDay: boolean } {
+	const dateOnly = isCanvasDateOnly(value, start)
+	if (dateOnly || isUtcMidnightAllDaySpan(start, end)) {
+		const allDayStart = asUtcMidnight(start, dateOnly)
+		return {
+			start: allDayStart,
+			end: exclusiveAllDayEnd(allDayStart, end, dateOnly),
+			allDay: true,
+		}
+	}
+
+	return {
+		start,
+		end: pinTimedEnd(start, end),
+		allDay: false,
+	}
+}
+
 export function parseCalendar(ics: string): ParsedEvent[] {
 	const parsed = ical.sync.parseICS(ics)
 	const events: ParsedEvent[] = []
@@ -65,6 +171,7 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 			continue
 		}
 		const end = 'end' in value && value.end instanceof Date ? value.end : start
+		const times = normalizeEventTimes(value, start, end)
 		const uidRaw = 'uid' in value ? textValue(value.uid) : ''
 		const uid = uidRaw.length > 0 ? uidRaw : crypto.randomUUID()
 		const descriptionRaw =
@@ -75,8 +182,9 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 
 		events.push({
 			uid,
-			start,
-			end,
+			start: times.start,
+			end: times.end,
+			allDay: times.allDay,
 			summary,
 			description,
 			url,
@@ -108,6 +216,7 @@ export function buildFilteredCalendar(
 			id: event.uid,
 			start: event.start,
 			end: event.end,
+			allDay: event.allDay,
 			summary: event.summary,
 			description: event.description,
 			url: event.url,
