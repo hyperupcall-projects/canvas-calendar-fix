@@ -46,6 +46,7 @@ type AppEnv = {
 export const app = new Hono<AppEnv>()
 
 app.use('/styles.css', serveStatic({ path: './public/styles.css' }))
+app.use('/favicon.svg', serveStatic({ path: './public/favicon.svg' }))
 
 app.on(['GET', 'POST'], '/api/auth/*', (c) => auth.handler(c.req.raw))
 

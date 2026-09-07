@@ -14,6 +14,20 @@ import {
 import { env } from './env.ts'
 
 describe('http routes', () => {
+	it('serves the calendar favicon and links it from pages', async () => {
+		const icon = await app.request('/favicon.svg')
+		assert.equal(icon.status, 200)
+		assert.match(icon.headers.get('content-type') ?? '', /image\/svg\+xml/)
+		assert.match(await icon.text(), /viewBox="0 0 48 48"/)
+
+		const page = await app.request('/sign-in')
+		assert.equal(page.status, 200)
+		assert.match(
+			await page.text(),
+			/rel="icon" href="\/favicon.svg" type="image\/svg\+xml"/,
+		)
+	})
+
 	it('redirects anonymous dashboard visits to sign-in', async () => {
 		const response = await app.request('/dashboard')
 		assert.equal(response.status, 302)

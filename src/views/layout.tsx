@@ -13,6 +13,7 @@ export function Layout(props: {
 					<meta charset="utf-8" />
 					<meta name="viewport" content="width=device-width, initial-scale=1" />
 					<title>{props.title}</title>
+					<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 					<link
 						rel="stylesheet"
 						href="https://cdn.jsdelivr.net/npm/purecss@3.0.0/build/pure-min.css"

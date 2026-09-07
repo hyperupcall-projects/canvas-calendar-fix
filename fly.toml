@@ -6,7 +6,9 @@
 app = 'canvas-calendar-fix'
 primary_region = 'sjc'
 
-[build]
+[env]
+  DATABASE_PATH = '/data/app.sqlite'
+
 [[mounts]]
   source = 'data'
   destination = '/data'
