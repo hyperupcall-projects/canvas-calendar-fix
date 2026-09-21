@@ -10,10 +10,12 @@ export type DashboardOutput = {
 	name: string
 	feedUrl: string
 	enabledCodes: string[]
+	addCanvasLink: boolean
 }
 
 export function DashboardPage(props: {
 	email: string
+	isAdmin?: boolean
 	sourceUrl: string
 	courses: DashboardCourse[]
 	outputs: DashboardOutput[]
@@ -25,18 +27,24 @@ export function DashboardPage(props: {
 	const canRemove = props.outputs.length > 1
 
 	return (
-		<Layout title="Dashboard" nav={<UserNav email={props.email} />}>
+		<Layout
+			title="Dashboard"
+			nav={<UserNav email={props.email} isAdmin={props.isAdmin} />}
+		>
 			<section>
-				<h1>Your Canvas calendar</h1>
+				<h1>Canvas Calendar Fix</h1>
 				<p>
-					Paste the ICS feed from Canvas, create up to four class subsets, then
-					subscribe to each private link below in Apple Calendar, Google
-					Calendar, or Outlook.
+					Paste the ICS feed from Canvas, then create up to four output calendars for use in
+					Google Calendar, Outlook, or other calendar apps.
+				</p>
+				<p>
+					The generated output calendar address should stay private. Anyone
+					with it can read this filtered calendar.
 				</p>
 				<ErrorBanner message={props.error} />
 				<SuccessBanner message={props.success} />
 
-				<h2>1. Canvas calendar URL</h2>
+				<h2>Canvas Calendar URL</h2>
 				<form
 					method="post"
 					action="/dashboard/source"
@@ -64,7 +72,7 @@ export function DashboardPage(props: {
 								formaction="/dashboard/source/reset"
 								formnovalidate
 							>
-								Reset calendar URL
+								Remove calendar URL
 							</button>
 						) : null}
 					</div>
@@ -72,10 +80,10 @@ export function DashboardPage(props: {
 			</section>
 
 			<section>
-				<h2>2. Output calendars</h2>
+				<h2>Output Calendars</h2>
 				{props.outputs.length === 0 ? (
 					<p>
-						Load a Canvas calendar URL to create your first private calendar.
+						First, load a Canvas calendar URL.
 					</p>
 				) : (
 					<div>
@@ -107,7 +115,7 @@ export function DashboardPage(props: {
 										class="pure-form pure-form-stacked"
 									>
 										<fieldset>
-											<label>
+											<label style="margin-bottom: 1em">
 												Name
 												<input
 													class="pure-input-1"
@@ -117,6 +125,7 @@ export function DashboardPage(props: {
 													value={output.name}
 												/>
 											</label>
+											<span>Choose Calendars</span>
 											{props.courses.length === 0 ? (
 												<p>No class codes were found in that Canvas feed.</p>
 											) : (
@@ -143,22 +152,42 @@ export function DashboardPage(props: {
 													until you check at least one class and save.
 												</p>
 											) : null}
-											<label>
-												Subscribe URL
+											<p style="margin-bottom: 0">Other Options</p>
+											<label class="pure-checkbox">
 												<input
-													class="pure-input-1"
-													type="url"
-													readonly
-													value={output.feedUrl}
-												/>
+													type="checkbox"
+													name="canvasLink"
+													checked={output.addCanvasLink}
+												/>{' '}
+												Modify event description to add Canvas link
+												(recommended)
 											</label>
-											<p>
-												This address is random and should stay private. Anyone
-												with it can read this filtered calendar.
-											</p>
+											<label style="margin-top:1em">
+												Subscribe URL
+												<span
+													class="subscribe-url"
+													style="display:flex;flex-wrap:nowrap;align-items:stretch;gap:0.5em"
+												>
+													<input
+														type="url"
+														readonly
+														value={output.feedUrl}
+														style="flex:1 1 0%;min-width:0;width:0;margin:0;box-sizing:border-box"
+													/>
+													<button
+														type="button"
+														class="pure-button"
+														style="flex:0 0 auto;width:auto;margin:0"
+														onclick="const input=this.previousElementSibling;navigator.clipboard.writeText(input.value).then(()=>{const label=this.textContent;this.textContent='Copied';setTimeout(()=>this.textContent=label,1500)})"
+													>
+														Copy
+													</button>
+												</span>
+											</label>
 											<button
 												type="submit"
 												class="pure-button pure-button-primary"
+												style="margin-top: 0.5em"
 											>
 												Save calendar
 											</button>
@@ -169,7 +198,7 @@ export function DashboardPage(props: {
 						})}
 						{canAdd ? (
 							<form method="post" action="/dashboard/outputs">
-								<button type="submit" class="pure-button">
+								<button type="submit" class="pure-button button-secondary" style="margin-top: 0.5em;">
 									Add another calendar
 								</button>
 							</form>

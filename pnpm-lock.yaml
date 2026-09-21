@@ -29,9 +29,6 @@ importers:
       ical-generator:
         specifier: ^11.1.1
         version: 11.1.1(@types/node@26.4.0)
-      iron-session:
-        specifier: ^9.0.1
-        version: 9.0.1
       node-ical:
         specifier: ^0.27.1
         version: 0.27.1
@@ -1470,10 +1467,6 @@ packages:
     resolution: {integrity: sha512-MWufYdFw53ccGjCA+Ol7XJYpAlW6/prSMzuPOTRnJGcGzuhLn4Scrz7qf6o8bROZ514ltazcIFJZevcfbo0x7A==}
     engines: {'0': node >= 6.0}
 
-  cookie@2.0.1:
-    resolution: {integrity: sha512-yuToqVvRrj6pfDXREyQAAv8SkAEk/8GS3jQRTiUMm66TVtBYmqQeoEjL2Lmq8Rpo6271vH76InTChTitEAm65w==}
-    engines: {node: '>=22'}
-
   core-js-compat@3.50.0:
     resolution: {integrity: sha512-XGpFGbMLHwSt74YLTKho7Ib242qi6O8MSX+sRokV4oz7iKXvQWGYZthjIhjRGMxjzVkAubBO512dKGYcefmX3Q==}
     engines: {node: '>=6.4.0'}
@@ -2030,13 +2023,6 @@ packages:
     peerDependenciesMeta:
       '@types/node':
         optional: true
-
-  iron-session@9.0.1:
-    resolution: {integrity: sha512-ELSZdcLvA0AMhxUCY+rwKCh42UV88SqEb1ia/bHLF9G+6kScikO6mShtlIq+OtF2UlkZP0dmI2dMdG9vh4rebA==}
-    engines: {node: '>=22.13.0'}
-
-  iron-webcrypto@2.0.0:
-    resolution: {integrity: sha512-rtffZKDUHciZElM8mjFCufBC7nVhCxHYyWHESqs89OioEDz4parOofd8/uhrejh/INhQFfYQfByS22LlezR9sQ==}
 
   is-alphabetical@2.0.1:
     resolution: {integrity: sha512-FWyyY60MeTNyeSRpkM2Iry0G9hpr7/9kD40mD/cGQEuilcZYS4okz8SN2Q6rLCJ8gbCt6fN+rC+6tMGS99LaxQ==}
@@ -2741,10 +2727,6 @@ packages:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
     hasBin: true
-
-  uint8array-extras@1.5.0:
-    resolution: {integrity: sha512-rvKSBiC5zqCCiDZ9kAOszZcDvdAHwwIKJG33Ykj43OKcWsnmcBRL09YTU4nOeHZ8Y2a7l1MgTd08SBe9A8Qj6A==}
-    engines: {node: '>=18'}
 
   undici-types@6.21.0:
     resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
@@ -3957,8 +3939,6 @@ snapshots:
       readable-stream: 3.6.2
       typedarray: 0.0.6
 
-  cookie@2.0.1: {}
-
   core-js-compat@3.50.0:
     dependencies:
       browserslist: 4.28.8
@@ -4477,15 +4457,6 @@ snapshots:
       rxjs: 7.8.2
     optionalDependencies:
       '@types/node': 26.4.0
-
-  iron-session@9.0.1:
-    dependencies:
-      cookie: 2.0.1
-      iron-webcrypto: 2.0.0
-
-  iron-webcrypto@2.0.0:
-    dependencies:
-      uint8array-extras: 1.5.0
 
   is-alphabetical@2.0.1: {}
 
@@ -5478,8 +5449,6 @@ snapshots:
       '@typescript/typescript-sunos-x64': 7.0.2
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
-
-  uint8array-extras@1.5.0: {}
 
   undici-types@6.21.0: {}
 

@@ -42,6 +42,9 @@ export const outputCalendars = sqliteTable(
 		name: text('name').notNull(),
 		publicToken: text('public_token').notNull().unique(),
 		position: integer('position').notNull(),
+		addCanvasLink: integer('add_canvas_link', { mode: 'boolean' })
+			.notNull()
+			.default(true),
 		lastFeedAccessAt: integer('last_feed_access_at', { mode: 'timestamp' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	},

@@ -24,10 +24,11 @@ export function Layout(props: {
 				</head>
 				<body>
 					<header class="pure-menu pure-menu-horizontal">
-						<a class="pure-menu-heading pure-menu-link" href="/">
-							Canvas Calendar Fix
-						</a>
-						{props.nav}
+						{props.nav ?? (
+							<a class="pure-menu-heading pure-menu-link" href="/">
+								Canvas Calendar Fix
+							</a>
+						)}
 					</header>
 					<main class="site-main">{props.children}</main>
 				</body>
@@ -36,20 +37,27 @@ export function Layout(props: {
 	)
 }
 
-export function UserNav(props: { email: string }) {
+export function UserNav(props: { email: string; isAdmin?: boolean }) {
 	return (
-		<ul class="pure-menu-list">
-			<li class="pure-menu-item">
-				<span class="pure-menu-link">{props.email}</span>
-			</li>
-			<li class="pure-menu-item">
-				<form method="post" action="/sign-out">
-					<button type="submit" class="pure-button">
-						Sign out
-					</button>
-				</form>
-			</li>
-		</ul>
+		<>
+			<span class="pure-menu-heading" style="text-transform: none;">{props.email}</span>
+			<ul class="pure-menu-list">
+				{props.isAdmin ? (
+					<li class="pure-menu-item">
+						<a class="pure-menu-link" href="/admin">
+							Admin
+						</a>
+					</li>
+				) : null}
+				<li class="pure-menu-item">
+					<form method="post" action="/sign-out">
+						<button type="submit" class="pure-button">
+							Sign out
+						</button>
+					</form>
+				</li>
+			</ul>
+		</>
 	)
 }
 

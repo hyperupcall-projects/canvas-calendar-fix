@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { asc, count, desc, eq, max, sql } from 'drizzle-orm'
 import { auth } from './auth.ts'
-import { getAdminSession, verifyAdminPassword } from './admin-auth.ts'
+import { isAdminEmail } from './admin-auth.ts'
 import { db } from './db/index.ts'
 import { user } from './db/auth-schema.ts'
 import {
@@ -28,6 +28,7 @@ import {
 	newPublicToken,
 } from './lib/util.ts'
 import {
+	AdminCheckEmailPage,
 	AdminLoginPage,
 	AdminPage,
 	type AdminDir,
@@ -247,6 +248,7 @@ app.get('/dashboard', async (c) => {
 	return c.html(
 		<DashboardPage
 			email={currentUser.email}
+			isAdmin={isAdminEmail(currentUser.email)}
 			sourceUrl={calendar?.sourceUrl ?? ''}
 			courses={courseRows.map((row) => ({ code: row.code }))}
 			outputs={outputRows.map((row) => ({
@@ -254,6 +256,7 @@ app.get('/dashboard', async (c) => {
 				name: row.name,
 				feedUrl: feedUrlFor(row.publicToken),
 				enabledCodes: enabledByOutput.get(row.id) ?? [],
+				addCanvasLink: row.addCanvasLink,
 			}))}
 			error={c.req.query('error')}
 			success={
@@ -447,13 +450,14 @@ app.post('/dashboard/outputs/:id', async (c) => {
 
 	const body = await c.req.parseBody({ all: true })
 	const name = sanitizeOutputName(String(body.name ?? ''), output.position)
+	const addCanvasLink = body.canvasLink != null
 	const codes = asStringList(body.code)
 	const enabled = new Set(asStringList(body.enabled))
 	const coursesByCode = new Map(courseRows.map((row) => [row.code, row]))
 
 	await db
 		.update(outputCalendars)
-		.set({ name })
+		.set({ name, addCanvasLink })
 		.where(eq(outputCalendars.id, output.id))
 	await db
 		.delete(outputCalendarCourses)
@@ -511,7 +515,12 @@ app.get('/feed/:token', async (c) => {
 	try {
 		const ics = await fetchCalendarSource(calendar.sourceUrl)
 		const events = parseCalendar(ics)
-		const filtered = buildFilteredCalendar(events, enabled, output.name)
+		const filtered = buildFilteredCalendar(
+			events,
+			enabled,
+			output.name,
+			output.addCanvasLink,
+		)
 		return c.body(filtered, 200, {
 			'content-type': 'text/calendar; charset=utf-8',
 			'cache-control': 'no-store',
@@ -521,36 +530,69 @@ app.get('/feed/:token', async (c) => {
 	}
 })
 
-app.get('/admin/login', async (c) => {
-	const session = await getAdminSession(c)
-	if (session.admin) {
+app.get('/admin/login', (c) => {
+	const currentUser = c.get('user')
+	if (currentUser && isAdminEmail(currentUser.email)) {
 		return c.redirect('/admin')
+	}
+	if (currentUser) {
+		return c.redirect('/dashboard')
 	}
 	return c.html(<AdminLoginPage error={c.req.query('error')} />)
 })
 
 app.post('/admin/login', async (c) => {
-	const body = await c.req.parseBody()
-	const password = String(body.password ?? '')
-	if (!verifyAdminPassword(password)) {
-		return c.html(<AdminLoginPage error="Incorrect password." />, 401)
+	const currentUser = c.get('user')
+	if (currentUser && isAdminEmail(currentUser.email)) {
+		return c.redirect('/admin')
 	}
-	const session = await getAdminSession(c)
-	session.admin = true
-	await session.save()
-	return c.redirect('/admin')
-})
+	if (currentUser) {
+		return c.redirect('/dashboard')
+	}
 
-app.post('/admin/logout', async (c) => {
-	const session = await getAdminSession(c)
-	session.destroy()
-	return c.redirect('/admin/login')
+	const body = await c.req.parseBody()
+	const email = String(body.email ?? '')
+		.trim()
+		.toLowerCase()
+	if (!isAdminEmail(email)) {
+		return c.html(
+			<AdminLoginPage error="This email is not authorized for admin access." />,
+			403,
+		)
+	}
+	if (!isCsumbEmail(email)) {
+		return c.html(
+			<AdminLoginPage error="Only @csumb.edu email addresses are allowed." />,
+			400,
+		)
+	}
+
+	try {
+		await auth.api.signInMagicLink({
+			body: {
+				email,
+				name: email.split('@')[0] ?? email,
+				callbackURL: '/admin',
+				errorCallbackURL: '/admin/login',
+			},
+			headers: c.req.raw.headers,
+		})
+	} catch (error) {
+		const message =
+			error instanceof Error ? error.message : 'Could not send a sign-in link.'
+		return c.html(<AdminLoginPage error={message} />, 500)
+	}
+
+	return c.html(<AdminCheckEmailPage email={email} />)
 })
 
 app.get('/admin', async (c) => {
-	const session = await getAdminSession(c)
-	if (!session.admin) {
+	const currentUser = c.get('user')
+	if (!currentUser) {
 		return c.redirect('/admin/login')
+	}
+	if (!isAdminEmail(currentUser.email)) {
+		return c.text('Forbidden', 403)
 	}
 
 	const sort = parseSort(c.req.query('sort'))
@@ -585,6 +627,7 @@ app.get('/admin', async (c) => {
 
 	return c.html(
 		<AdminPage
+			email={currentUser.email}
 			totalUsers={totalUsers}
 			users={rows.map((row) => ({
 				email: row.email,

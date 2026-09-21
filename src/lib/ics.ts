@@ -195,10 +195,18 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 	return events
 }
 
+function withCanvasLink(event: ParsedEvent): string | undefined {
+	if (!event.url) {
+		return event.description
+	}
+	return event.description ? `${event.url}\n\n${event.description}` : event.url
+}
+
 export function buildFilteredCalendar(
 	events: ParsedEvent[],
 	enabledCodes: ReadonlySet<string>,
 	calendarName = 'Canvas (filtered)',
+	addCanvasLink = false,
 ): string {
 	const calendar = icalGenerator({
 		name: calendarName,
@@ -218,7 +226,7 @@ export function buildFilteredCalendar(
 			end: event.end,
 			allDay: event.allDay,
 			summary: event.summary,
-			description: event.description,
+			description: addCanvasLink ? withCanvasLink(event) : event.description,
 			url: event.url,
 		})
 	}

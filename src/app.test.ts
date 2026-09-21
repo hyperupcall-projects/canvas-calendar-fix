@@ -50,33 +50,101 @@ describe('http routes', () => {
 		assert.equal(response.headers.get('location'), '/admin/login')
 	})
 
-	it('rejects a wrong admin password and accepts the configured one', async () => {
+	it('rejects a non-admin email on the admin login form', async () => {
 		const denied = await app.request('/admin/login', {
 			method: 'POST',
-			body: new URLSearchParams({ password: 'wrong' }),
+			body: new URLSearchParams({ email: 'student@csumb.edu' }),
 			headers: { 'content-type': 'application/x-www-form-urlencoded' },
 		})
-		assert.equal(denied.status, 401)
+		assert.equal(denied.status, 403)
+		assert.match(await denied.text(), /not authorized for admin access/)
+	})
 
-		const accepted = await app.request('/admin/login', {
-			method: 'POST',
-			body: new URLSearchParams({ password: process.env.ADMIN_PASSWORD ?? '' }),
-			headers: { 'content-type': 'application/x-www-form-urlencoded' },
-		})
-		assert.equal(accepted.status, 302)
-		assert.equal(accepted.headers.get('location'), '/admin')
-		const cookie = accepted.headers.get('set-cookie') ?? ''
-		assert.match(cookie, /admin_session=/)
-		assert.match(cookie, /HttpOnly/i)
+	it('allows the configured admin email to open the admin page', async () => {
+		assert.ok(env.ADMIN_EMAIL, 'ADMIN_EMAIL must be set for this test')
 
-		const page = await app.request('/admin?sort=email&dir=asc', {
-			headers: { cookie: cookie.split(';', 1)[0] ?? '' },
-		})
-		assert.equal(page.status, 200)
-		const html = await page.text()
-		assert.match(html, /Total users/)
-		assert.match(html, /sort=email/)
-		assert.doesNotMatch(html, /<script/)
+		const now = new Date()
+		const userId = crypto.randomUUID()
+		const sessionToken = crypto.randomUUID()
+
+		try {
+			await db.insert(user).values({
+				id: userId,
+				name: 'admin-test',
+				email: env.ADMIN_EMAIL,
+				emailVerified: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			await db.insert(session).values({
+				id: crypto.randomUUID(),
+				expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+				token: sessionToken,
+				createdAt: now,
+				updatedAt: now,
+				userId,
+			})
+
+			const signed = `${sessionToken}.${await makeSignature(sessionToken, env.BETTER_AUTH_SECRET)}`
+			const cookie = `better-auth.session_token=${encodeURIComponent(signed)}`
+
+			const page = await app.request('/admin?sort=email&dir=asc', {
+				headers: { cookie },
+			})
+			assert.equal(page.status, 200)
+			const html = await page.text()
+			assert.match(html, /Total users/)
+			assert.match(html, /sort=email/)
+			assert.match(html, /href="\/admin"/)
+			assert.doesNotMatch(html, /<script/)
+
+			const dashboard = await app.request('/dashboard', {
+				headers: { cookie },
+			})
+			assert.equal(dashboard.status, 200)
+			assert.match(await dashboard.text(), /href="\/admin"/)
+		} finally {
+			await db.delete(user).where(eq(user.id, userId))
+		}
+	})
+
+	it('forbids a signed-in non-admin from the admin page', async () => {
+		const now = new Date()
+		const userId = crypto.randomUUID()
+		const sessionToken = crypto.randomUUID()
+		const email = `student-${userId}@csumb.edu`
+
+		try {
+			await db.insert(user).values({
+				id: userId,
+				name: 'student-test',
+				email,
+				emailVerified: true,
+				createdAt: now,
+				updatedAt: now,
+			})
+			await db.insert(session).values({
+				id: crypto.randomUUID(),
+				expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+				token: sessionToken,
+				createdAt: now,
+				updatedAt: now,
+				userId,
+			})
+
+			const signed = `${sessionToken}.${await makeSignature(sessionToken, env.BETTER_AUTH_SECRET)}`
+			const cookie = `better-auth.session_token=${encodeURIComponent(signed)}`
+			const response = await app.request('/admin', { headers: { cookie } })
+			assert.equal(response.status, 403)
+
+			const dashboard = await app.request('/dashboard', {
+				headers: { cookie },
+			})
+			assert.equal(dashboard.status, 200)
+			assert.doesNotMatch(await dashboard.text(), /href="\/admin"/)
+		} finally {
+			await db.delete(user).where(eq(user.id, userId))
+		}
 	})
 
 	it('redirects anonymous calendar URL resets to sign-in', async () => {
@@ -263,6 +331,7 @@ describe('http routes', () => {
 				.from(outputCalendarCourses)
 				.where(eq(outputCalendarCourses.outputCalendarId, second.id))
 			assert.equal(memberships.length, 2)
+			assert.equal(second.addCanvasLink, true)
 
 			const saved = await app.request(`/dashboard/outputs/${second.id}`, {
 				method: 'POST',
@@ -278,6 +347,12 @@ describe('http routes', () => {
 				]),
 			})
 			assert.equal(saved.status, 302)
+
+			const [reloaded] = await db
+				.select()
+				.from(outputCalendars)
+				.where(eq(outputCalendars.id, second.id))
+			assert.equal(reloaded?.addCanvasLink, false)
 
 			const page = await app.request('/dashboard', { headers: { cookie } })
 			assert.equal(page.status, 200)

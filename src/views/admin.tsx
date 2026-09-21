@@ -1,4 +1,4 @@
-import { ErrorBanner, Layout } from './layout.tsx'
+import { ErrorBanner, Layout, UserNav } from './layout.tsx'
 import { formatPacific } from '../lib/util.ts'
 
 export type AdminUserRow = {
@@ -37,7 +37,7 @@ export function AdminLoginPage(props: { error?: string | null }) {
 		<Layout title="Admin sign in">
 			<section class="narrow">
 				<h1>Admin</h1>
-				<p>This page is separate from student sign-in.</p>
+				<p>Enter the admin email to receive a sign-in link.</p>
 				<ErrorBanner message={props.error} />
 				<form
 					method="post"
@@ -45,17 +45,18 @@ export function AdminLoginPage(props: { error?: string | null }) {
 					class="pure-form pure-form-stacked"
 				>
 					<label>
-						Password
+						Email
 						<input
 							class="pure-input-1"
-							type="password"
-							name="password"
+							type="email"
+							name="email"
 							required
-							autocomplete="current-password"
+							autocomplete="email"
+							placeholder="you@csumb.edu"
 						/>
 					</label>
 					<button type="submit" class="pure-button pure-button-primary">
-						Sign in
+						Email me a sign-in link
 					</button>
 				</form>
 			</section>
@@ -63,7 +64,25 @@ export function AdminLoginPage(props: { error?: string | null }) {
 	)
 }
 
+export function AdminCheckEmailPage(props: { email: string }) {
+	return (
+		<Layout title="Check your email">
+			<section class="narrow">
+				<h1>Check your inbox</h1>
+				<p>
+					If <strong>{props.email}</strong> can receive mail, a sign-in link is
+					on the way. Open it to continue to the admin page.
+				</p>
+				<p>
+					<a href="/admin/login">Use a different email</a>
+				</p>
+			</section>
+		</Layout>
+	)
+}
+
 export function AdminPage(props: {
+	email: string
 	totalUsers: number
 	users: AdminUserRow[]
 	sort: AdminSort
@@ -72,17 +91,7 @@ export function AdminPage(props: {
 	return (
 		<Layout
 			title="Admin"
-			nav={
-				<ul class="pure-menu-list">
-					<li class="pure-menu-item">
-						<form method="post" action="/admin/logout">
-							<button type="submit" class="pure-button">
-								Sign out
-							</button>
-						</form>
-					</li>
-				</ul>
-			}
+			nav={<UserNav email={props.email} isAdmin />}
 		>
 			<section>
 				<h1>Users</h1>

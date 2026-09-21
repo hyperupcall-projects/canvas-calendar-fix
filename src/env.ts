@@ -24,7 +24,7 @@ export const env = {
 	RESEND_API_KEY: required('RESEND_API_KEY'),
 	RESEND_FROM: required('RESEND_FROM'),
 	DATABASE_PATH: databasePath,
-	ADMIN_PASSWORD: process.env.ADMIN_PASSWORD?.trim() || 'Xv9#kL2mQp8!nR4wT6hB',
+	ADMIN_EMAIL: process.env.ADMIN_EMAIL?.trim().toLowerCase() ?? '',
 	PORT: Number(process.env.PORT ?? '3000'),
 }
 

@@ -15,12 +15,14 @@ describe('DashboardPage', () => {
 						name: 'Calendar 1',
 						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
 						enabledCodes: ['CST463-01_2264'],
+						addCanvasLink: true,
 					},
 					{
 						id: 'out-2',
 						name: 'Labs only',
 						feedUrl: 'http://localhost:3000/feed/other-token.ics',
 						enabledCodes: ['CST334-01_2264'],
+						addCanvasLink: false,
 					},
 				]}
 			/>
@@ -34,6 +36,8 @@ describe('DashboardPage', () => {
 		assert.match(html, /Labs only/)
 		assert.match(html, /secret-token\.ics/)
 		assert.match(html, /other-token\.ics/)
+		assert.match(html, /navigator\.clipboard\.writeText/)
+		assert.match(html, />\s*Copy\s*</)
 		assert.match(html, /action="\/dashboard\/source"/)
 		assert.match(html, /formaction="\/dashboard\/source\/reset"/)
 		assert.match(html, /Reset calendar URL/)
@@ -44,12 +48,22 @@ describe('DashboardPage', () => {
 		assert.match(html, /action="\/dashboard\/outputs"/)
 		assert.match(html, /Add another calendar/)
 		assert.match(html, /checked=""/)
+		assert.match(
+			html,
+			/Modify event description to add Canvas link\s*\(recommended\)/,
+		)
 		assert.doesNotMatch(html, /<script/)
 		const labsIndex = html.indexOf('Labs only')
 		const firstRemove = html.indexOf('action="/dashboard/outputs/out-1/delete"')
 		const secondStart = html.indexOf('action="/dashboard/outputs/out-2"')
 		assert.ok(firstRemove > -1 && labsIndex > -1 && secondStart > firstRemove)
 		assert.ok(firstRemove < secondStart)
+		assert.match(html.slice(0, secondStart), /name="canvasLink" checked=""/)
+		assert.match(html.slice(secondStart), /name="canvasLink"/)
+		assert.doesNotMatch(
+			html.slice(secondStart),
+			/name="canvasLink" checked=""/,
+		)
 	})
 
 	it('lets you add a second calendar but not remove the last one', async () => {
@@ -64,6 +78,7 @@ describe('DashboardPage', () => {
 						name: 'Calendar 1',
 						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
 						enabledCodes: ['CST463-01_2264'],
+						addCanvasLink: true,
 					},
 				]}
 			/>
@@ -81,6 +96,7 @@ describe('DashboardPage', () => {
 			name: `Calendar ${n}`,
 			feedUrl: `http://localhost:3000/feed/token-${n}.ics`,
 			enabledCodes: [] as string[],
+			addCanvasLink: true,
 		}))
 		const node = (
 			<DashboardPage

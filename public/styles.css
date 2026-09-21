@@ -52,6 +52,7 @@ body {
 .output-calendar {
 	margin: 1.25em 0 0;
 	padding: 1em;
+	padding-bottom: .25em;
 	border: 1px solid #ccc;
 	background: #fff;
 }
@@ -69,6 +70,37 @@ body {
 	font-size: 1.1em;
 }
 
+.pure-form-stacked .subscribe-url {
+	display: flex;
+	flex-wrap: nowrap;
+	align-items: stretch;
+	gap: 0.5em;
+	margin: 0.25em 0;
+}
+
+.pure-form-stacked .subscribe-url input[type='url'] {
+	display: block;
+	box-sizing: border-box;
+	flex: 1 1 0%;
+	min-width: 0;
+	width: 0;
+	margin: 0;
+}
+
+.pure-form-stacked .subscribe-url .pure-button {
+	flex: 0 0 auto;
+	width: auto;
+	margin: 0;
+	align-self: stretch;
+}
+
 .table-wrap {
 	overflow-x: auto;
+}
+
+.button-secondary {
+	color: white;
+   border-radius: 4px;
+   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+   background: rgb(66, 184, 221);
 }
