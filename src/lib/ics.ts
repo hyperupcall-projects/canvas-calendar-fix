@@ -30,6 +30,35 @@ export function extractCourseCode(summary: string): string | null {
 	return match?.[1] ?? null
 }
 
+/**
+ * Canvas feeds link an assignment to the month calendar, for example
+ * `/calendar?include_contexts=course_33852&month=09&year=2026#assignment_647972`.
+ * The assignment page is `/courses/33852/assignments/647972`. Returns null when
+ * the URL is not that calendar shape, so other links are left as Canvas sent them.
+ */
+export function assignmentPageUrl(calendarUrl: string): string | null {
+	let url: URL
+	try {
+		url = new URL(calendarUrl)
+	} catch {
+		return null
+	}
+	const assignmentId = /^#assignment_(\d+)$/.exec(url.hash)?.[1]
+	if (!assignmentId) {
+		return null
+	}
+	const courseId = url.searchParams
+		.get('include_contexts')
+		?.split(',')
+		.map((part) => part.trim())
+		.find((part) => /^course_\d+$/.test(part))
+		?.slice('course_'.length)
+	if (!courseId) {
+		return null
+	}
+	return `${url.origin}/courses/${courseId}/assignments/${assignmentId}`
+}
+
 export function collectCourseCodes(events: ParsedEvent[]): string[] {
 	const codes = new Set<string>()
 	for (const event of events) {
@@ -180,7 +209,8 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 			'description' in value ? textValue(value.description) : ''
 		const description = descriptionRaw.length > 0 ? descriptionRaw : undefined
 		const urlRaw = 'url' in value ? textValue(value.url) : ''
-		const url = urlRaw.length > 0 ? urlRaw : undefined
+		const url =
+			urlRaw.length > 0 ? (assignmentPageUrl(urlRaw) ?? urlRaw) : undefined
 
 		events.push({
 			uid,

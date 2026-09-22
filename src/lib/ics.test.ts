@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { resolve } from 'node:path'
 import {
+	assignmentPageUrl,
 	buildFilteredCalendar,
 	collectCourseCodes,
 	extractCourseCode,
@@ -18,6 +19,38 @@ describe('extractCourseCode', () => {
 			'CST463-01_2264',
 		)
 		assert.equal(extractCourseCode('Office hours'), null)
+	})
+})
+
+describe('assignmentPageUrl', () => {
+	it('turns a Canvas calendar assignment link into the assignment page', () => {
+		assert.equal(
+			assignmentPageUrl(
+				'https://csumb.instructure.com/calendar?include_contexts=course_33852&month=09&year=2026#assignment_647972',
+			),
+			'https://csumb.instructure.com/courses/33852/assignments/647972',
+		)
+	})
+
+	it('leaves links that are not assignment calendar views alone', () => {
+		assert.equal(
+			assignmentPageUrl(
+				'https://csumb.instructure.com/courses/35039/assignments/609259',
+			),
+			null,
+		)
+		assert.equal(
+			assignmentPageUrl(
+				'https://csumb.instructure.com/calendar?include_contexts=course_33852#calendar_event_12',
+			),
+			null,
+		)
+		assert.equal(
+			assignmentPageUrl(
+				'https://csumb.instructure.com/calendar#assignment_632524',
+			),
+			null,
+		)
 	})
 })
 
@@ -134,15 +167,19 @@ SUMMARY:Service: Project Selection [CST462S-M_80-81-82_2264]
 		assert.doesNotMatch(block, /VALUE=DATE/)
 	})
 
-	it('puts the Canvas link first in the description when asked', () => {
+	it('puts a direct assignment link first in the description when asked', () => {
 		const events = parseCalendar(
 			vevent(`UID:event-assignment-linked
 DTSTART:20260825T190000Z
 DTEND:20260825T190000Z
 DESCRIPTION:Goal and Learning Outcomes
 SUMMARY:08/25/26 [CST463-01_2264]
-URL;VALUE=URI:https://csumb.instructure.com/calendar#assignment_632524
+URL;VALUE=URI:https://csumb.instructure.com/calendar?include_contexts=course_33852&month=09&year=2026#assignment_647972
 `),
+		)
+		assert.equal(
+			events[0]?.url,
+			'https://csumb.instructure.com/courses/33852/assignments/647972',
 		)
 		const ics = buildFilteredCalendar(
 			events,
@@ -153,7 +190,11 @@ URL;VALUE=URI:https://csumb.instructure.com/calendar#assignment_632524
 		const block = eventBlock(ics, 'event-assignment-linked')
 		assert.match(
 			block,
-			/DESCRIPTION:https:\/\/csumb\.instructure\.com\/calendar#assignment_632524\\n\\nGoal and Learning Outcomes/,
+			/DESCRIPTION:https:\/\/csumb\.instructure\.com\/courses\/33852\/assignments\/647972\\n\\nGoal and Learning Outcomes/,
+		)
+		assert.match(
+			block,
+			/URL;VALUE=URI:https:\/\/csumb\.instructure\.com\/courses\/33852\/assignments\/647972/,
 		)
 	})
 
