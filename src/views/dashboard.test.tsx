@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { DashboardPage } from './dashboard.tsx'
+import { DashboardPage, type DashboardOutput } from './dashboard.tsx'
+
+function makeOutput(
+	overrides: Partial<DashboardOutput> &
+		Pick<DashboardOutput, 'id' | 'name' | 'feedUrl'>,
+): DashboardOutput {
+	return {
+		enabledCodes: [],
+		addCanvasLink: true,
+		tasksEnabled: false,
+		tasksListName: null,
+		tasksLastSyncAt: null,
+		tasksLastSyncError: null,
+		...overrides,
+	}
+}
 
 describe('DashboardPage', () => {
 	it('renders the Canvas URL, class toggles, and private feed links', async () => {
@@ -10,20 +25,19 @@ describe('DashboardPage', () => {
 				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
 				courses={[{ code: 'CST463-01_2264' }, { code: 'CST334-01_2264' }]}
 				outputs={[
-					{
+					makeOutput({
 						id: 'out-1',
 						name: 'Calendar 1',
 						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
 						enabledCodes: ['CST463-01_2264'],
-						addCanvasLink: true,
-					},
-					{
+					}),
+					makeOutput({
 						id: 'out-2',
 						name: 'Labs only',
 						feedUrl: 'http://localhost:3000/feed/other-token.ics',
 						enabledCodes: ['CST334-01_2264'],
 						addCanvasLink: false,
-					},
+					}),
 				]}
 			/>
 		)
@@ -40,7 +54,7 @@ describe('DashboardPage', () => {
 		assert.match(html, />\s*Copy\s*</)
 		assert.match(html, /action="\/dashboard\/source"/)
 		assert.match(html, /formaction="\/dashboard\/source\/reset"/)
-		assert.match(html, /Reset calendar URL/)
+		assert.match(html, /Remove calendar URL/)
 		assert.match(html, /class="output-calendar"/)
 		assert.match(html, /action="\/dashboard\/outputs\/out-1"/)
 		assert.match(html, /action="\/dashboard\/outputs\/out-2"/)
@@ -73,13 +87,12 @@ describe('DashboardPage', () => {
 				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
-					{
+					makeOutput({
 						id: 'out-1',
 						name: 'Calendar 1',
 						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
 						enabledCodes: ['CST463-01_2264'],
-						addCanvasLink: true,
-					},
+					}),
 				]}
 			/>
 		)
@@ -87,17 +100,19 @@ describe('DashboardPage', () => {
 		assert.match(html, /action="\/dashboard\/outputs"/)
 		assert.match(html, /Add another calendar/)
 		assert.doesNotMatch(html, /\/delete/)
-		assert.doesNotMatch(html, /Remove calendar/)
+		// The source form still offers "Remove calendar URL"; only the
+		// per-calendar delete button should be gone.
+		assert.doesNotMatch(html, />Remove calendar</)
 	})
 
 	it('hides add when four calendars already exist', async () => {
-		const outputs = [1, 2, 3, 4].map((n) => ({
-			id: `out-${n}`,
-			name: `Calendar ${n}`,
-			feedUrl: `http://localhost:3000/feed/token-${n}.ics`,
-			enabledCodes: [] as string[],
-			addCanvasLink: true,
-		}))
+		const outputs = [1, 2, 3, 4].map((n) =>
+			makeOutput({
+				id: `out-${n}`,
+				name: `Calendar ${n}`,
+				feedUrl: `http://localhost:3000/feed/token-${n}.ics`,
+			}),
+		)
 		const node = (
 			<DashboardPage
 				email="test@csumb.edu"
@@ -124,6 +139,114 @@ describe('DashboardPage', () => {
 		const html = await Promise.resolve(String(node))
 		assert.match(html, /action="\/dashboard\/source"/)
 		assert.doesNotMatch(html, /formaction="\/dashboard\/source\/reset"/)
-		assert.doesNotMatch(html, /Reset calendar URL/)
+		assert.doesNotMatch(html, /Remove calendar URL/)
+	})
+
+	it('hides Google Tasks entirely when it is not configured', async () => {
+		const node = (
+			<DashboardPage
+				email="test@csumb.edu"
+				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				courses={[{ code: 'CST463-01_2264' }]}
+				outputs={[
+					makeOutput({
+						id: 'out-1',
+						name: 'Calendar 1',
+						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+					}),
+				]}
+			/>
+		)
+		const html = await Promise.resolve(String(node))
+		assert.doesNotMatch(html, /Google Tasks/)
+		assert.doesNotMatch(html, /tasksListName/)
+		assert.doesNotMatch(html, /Sync now/)
+	})
+
+	it('offers to connect Google and keeps the per-calendar toggle disabled', async () => {
+		const node = (
+			<DashboardPage
+				email="test@csumb.edu"
+				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				courses={[{ code: 'CST463-01_2264' }]}
+				outputs={[
+					makeOutput({
+						id: 'out-1',
+						name: 'Calendar 1',
+						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+					}),
+				]}
+				googleConfigured
+			/>
+		)
+		const html = await Promise.resolve(String(node))
+		assert.match(html, /action="\/dashboard\/google\/connect"/)
+		assert.doesNotMatch(html, /action="\/dashboard\/google\/disconnect"/)
+		assert.match(html, /name="tasksEnabled"[^>]*disabled=""/)
+		assert.match(html, /Sync now/)
+		const syncButton = html.slice(
+			html.indexOf('formaction="/dashboard/outputs/out-1/sync"'),
+		)
+		assert.match(syncButton.slice(0, syncButton.indexOf('>')), /disabled=""/)
+	})
+
+	it('shows a task list name distinct from the calendar name and enables Sync now', async () => {
+		const node = (
+			<DashboardPage
+				email="test@csumb.edu"
+				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				courses={[{ code: 'CST463-01_2264' }]}
+				outputs={[
+					makeOutput({
+						id: 'out-1',
+						name: 'Class',
+						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+						enabledCodes: ['CST463-01_2264'],
+						tasksEnabled: true,
+						tasksListName: 'Homework',
+						tasksLastSyncAt: new Date('2026-09-07T19:30:00.000Z'),
+					}),
+				]}
+				googleConfigured
+				googleConnected
+			/>
+		)
+		const html = await Promise.resolve(String(node))
+		assert.match(html, /action="\/dashboard\/google\/disconnect"/)
+		assert.match(html, /myaccount\.google\.com\/permissions/)
+		assert.match(html, /stay in your Google\s+account/)
+		assert.match(html, /name="tasksEnabled" checked=""/)
+		assert.match(html, /name="tasksListName"[^>]*value="Homework"/)
+		// The calendar name is only the placeholder, so the two stay independent.
+		assert.match(html, /name="tasksListName"[^>]*placeholder="Class"/)
+		assert.match(html, /Last synced: Sep 7, 2026/)
+
+		const syncButton = html.slice(
+			html.indexOf('formaction="/dashboard/outputs/out-1/sync"'),
+		)
+		assert.doesNotMatch(syncButton.slice(0, syncButton.indexOf('>')), /disabled/)
+	})
+
+	it('surfaces the last Google Tasks sync error', async () => {
+		const node = (
+			<DashboardPage
+				email="test@csumb.edu"
+				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				courses={[{ code: 'CST463-01_2264' }]}
+				outputs={[
+					makeOutput({
+						id: 'out-1',
+						name: 'Calendar 1',
+						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+						tasksEnabled: true,
+						tasksLastSyncError: 'Google Tasks returned HTTP 403.',
+					}),
+				]}
+				googleConfigured
+				googleConnected
+			/>
+		)
+		const html = await Promise.resolve(String(node))
+		assert.match(html, /Last Google Tasks sync failed: Google Tasks returned/)
 	})
 })

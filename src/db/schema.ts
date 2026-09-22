@@ -45,6 +45,13 @@ export const outputCalendars = sqliteTable(
 		addCanvasLink: integer('add_canvas_link', { mode: 'boolean' })
 			.notNull()
 			.default(true),
+		tasksEnabled: integer('tasks_enabled', { mode: 'boolean' })
+			.notNull()
+			.default(false),
+		tasksListName: text('tasks_list_name'),
+		tasksListId: text('tasks_list_id'),
+		tasksLastSyncAt: integer('tasks_last_sync_at', { mode: 'timestamp' }),
+		tasksLastSyncError: text('tasks_last_sync_error'),
 		lastFeedAccessAt: integer('last_feed_access_at', { mode: 'timestamp' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	},
@@ -73,6 +80,13 @@ export const outputCalendarCourses = sqliteTable(
 
 export function defaultOutputName(position: number): string {
 	return `Calendar ${position}`
+}
+
+export function resolveTasksListName(output: {
+	name: string
+	tasksListName: string | null
+}): string {
+	return output.tasksListName ?? output.name
 }
 
 export function nextOutputPosition(

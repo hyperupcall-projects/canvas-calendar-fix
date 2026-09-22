@@ -14,6 +14,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 const MS_PER_MINUTE = 60 * 1000
 
 export type ParsedEvent = {
+	/** Empty when the source feed did not supply one. */
 	uid: string
 	start: Date
 	end: Date
@@ -172,8 +173,9 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 		}
 		const end = 'end' in value && value.end instanceof Date ? value.end : start
 		const times = normalizeEventTimes(value, start, end)
-		const uidRaw = 'uid' in value ? textValue(value.uid) : ''
-		const uid = uidRaw.length > 0 ? uidRaw : crypto.randomUUID()
+		// Left empty when the feed omits it. Anything keyed off a synthetic id
+		// would be treated as a brand new event on every parse.
+		const uid = 'uid' in value ? textValue(value.uid) : ''
 		const descriptionRaw =
 			'description' in value ? textValue(value.description) : ''
 		const description = descriptionRaw.length > 0 ? descriptionRaw : undefined
@@ -221,7 +223,7 @@ export function buildFilteredCalendar(
 			continue
 		}
 		calendar.createEvent({
-			id: event.uid,
+			id: event.uid.length > 0 ? event.uid : crypto.randomUUID(),
 			start: event.start,
 			end: event.end,
 			allDay: event.allDay,

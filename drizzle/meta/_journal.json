@@ -22,6 +22,13 @@
 			"when": 1757230000000,
 			"tag": "0002_add_canvas_link",
 			"breakpoints": true
+		},
+		{
+			"idx": 3,
+			"version": "6",
+			"when": 1757320000000,
+			"tag": "0003_google_tasks",
+			"breakpoints": true
 		}
 	]
 }

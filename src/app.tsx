@@ -13,7 +13,7 @@ import {
 	outputCalendarCourses,
 	outputCalendars,
 } from './db/schema.ts'
-import { env } from './env.ts'
+import { env, googleConfigured } from './env.ts'
 import { assertCanvasFeedUrl } from './lib/canvas-url.ts'
 import {
 	buildFilteredCalendar,
@@ -21,6 +21,11 @@ import {
 	fetchCalendarSource,
 	parseCalendar,
 } from './lib/ics.ts'
+import {
+	googleAccountFor,
+	syncOutputCalendar,
+	syncOutputCalendarInBackground,
+} from './lib/task-sync.ts'
 import {
 	asStringList,
 	isCsumbEmail,
@@ -134,6 +139,17 @@ function sanitizeOutputName(raw: string, position: number): string {
 	return name.length > 0 ? name : defaultOutputName(position)
 }
 
+// Null means "follow the calendar name", so clearing the field is a valid way
+// back to the default rather than an error.
+function sanitizeTasksListName(raw: string): string | null {
+	const name = raw.trim().slice(0, 80)
+	return name.length > 0 ? name : null
+}
+
+function redirectWithError(message: string): string {
+	return `/dashboard?error=${encodeURIComponent(message)}`
+}
+
 async function includeCourseInOutputs(
 	outputIds: string[],
 	courseIds: string[],
@@ -244,6 +260,9 @@ app.get('/dashboard', async (c) => {
 		codes.push(row.code)
 		enabledByOutput.set(row.outputCalendarId, codes)
 	}
+	const googleConnected = googleConfigured
+		? (await googleAccountFor(currentUser.id)) != null
+		: false
 
 	return c.html(
 		<DashboardPage
@@ -257,17 +276,103 @@ app.get('/dashboard', async (c) => {
 				feedUrl: feedUrlFor(row.publicToken),
 				enabledCodes: enabledByOutput.get(row.id) ?? [],
 				addCanvasLink: row.addCanvasLink,
+				tasksEnabled: row.tasksEnabled,
+				tasksListName: row.tasksListName,
+				tasksLastSyncAt: row.tasksLastSyncAt,
+				tasksLastSyncError: row.tasksLastSyncError,
 			}))}
+			googleConfigured={googleConfigured}
+			googleConnected={googleConnected}
 			error={c.req.query('error')}
 			success={
 				c.req.query('saved')
 					? 'Saved.'
 					: c.req.query('reset')
 						? 'Calendar URL removed.'
-						: null
+						: c.req.query('synced')
+							? `Synced to Google Tasks. ${c.req.query('synced')}`
+							: c.req.query('connected')
+								? 'Google account connected.'
+								: c.req.query('disconnected')
+									? 'Google account disconnected.'
+									: null
 			}
 		/>,
 	)
+})
+
+app.post('/dashboard/google/connect', async (c) => {
+	const currentUser = c.get('user')
+	if (!currentUser) {
+		return c.redirect('/sign-in')
+	}
+	if (!googleConfigured) {
+		return c.redirect(redirectWithError('Google Tasks sync is not configured.'))
+	}
+
+	try {
+		const link = await auth.api.linkSocialAccount({
+			body: {
+				provider: 'google',
+				callbackURL: '/dashboard?connected=1',
+				errorCallbackURL: '/dashboard',
+				disableRedirect: true,
+			},
+			headers: c.req.raw.headers,
+		})
+		if (!link?.url) {
+			throw new Error('Google did not return an authorization URL.')
+		}
+		return c.redirect(link.url)
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: 'Could not start the Google connection.'
+		return c.redirect(redirectWithError(message))
+	}
+})
+
+app.post('/dashboard/google/disconnect', async (c) => {
+	const currentUser = c.get('user')
+	if (!currentUser) {
+		return c.redirect('/sign-in')
+	}
+
+	const linked = await googleAccountFor(currentUser.id)
+	if (!linked) {
+		return c.redirect(redirectWithError('No Google account is connected.'))
+	}
+
+	try {
+		await auth.api.unlinkAccount({
+			body: { accountId: linked.id },
+			headers: c.req.raw.headers,
+		})
+	} catch (error) {
+		const message =
+			error instanceof Error
+				? error.message
+				: 'Could not disconnect the Google account.'
+		return c.redirect(redirectWithError(message))
+	}
+
+	// The task lists themselves stay in the user's Google account; they hold
+	// notes and completion state we should not destroy. Only our sync state goes.
+	const { outputRows } = await loadCalendarForUser(currentUser.id)
+	for (const output of outputRows) {
+		await db
+			.update(outputCalendars)
+			.set({
+				tasksEnabled: false,
+				tasksListId: null,
+				tasksLastSyncAt: null,
+				tasksLastSyncError: null,
+			})
+			.where(eq(outputCalendars.id, output.id))
+	}
+
+	return c.redirect('/dashboard?disconnected=1')
 })
 
 app.post('/dashboard/source', async (c) => {
@@ -427,8 +532,31 @@ app.post('/dashboard/outputs/:id/delete', async (c) => {
 		)
 	}
 
+	// Any Google task list this calendar fed stays put. Removing it would throw
+	// away tasks the user may still be working through.
 	await db.delete(outputCalendars).where(eq(outputCalendars.id, output.id))
 	return c.redirect('/dashboard?saved=1')
+})
+
+app.post('/dashboard/outputs/:id/sync', async (c) => {
+	const currentUser = c.get('user')
+	if (!currentUser) {
+		return c.redirect('/sign-in')
+	}
+
+	const outputId = c.req.param('id')
+	const { outputRows } = await loadCalendarForUser(currentUser.id)
+	const output = outputRows.find((row) => row.id === outputId)
+	if (!output) {
+		return c.redirect(redirectWithError('That calendar was not found.'))
+	}
+
+	const result = await syncOutputCalendar(output.id)
+	if (!result.ok) {
+		return c.redirect(redirectWithError(result.message))
+	}
+	const summary = `${result.added} added, ${result.skipped} already there.`
+	return c.redirect(`/dashboard?synced=${encodeURIComponent(summary)}`)
 })
 
 app.post('/dashboard/outputs/:id', async (c) => {
@@ -451,13 +579,17 @@ app.post('/dashboard/outputs/:id', async (c) => {
 	const body = await c.req.parseBody({ all: true })
 	const name = sanitizeOutputName(String(body.name ?? ''), output.position)
 	const addCanvasLink = body.canvasLink != null
+	// Saved even while the toggle is off, so a name typed before connecting
+	// Google survives.
+	const tasksListName = sanitizeTasksListName(String(body.tasksListName ?? ''))
+	const tasksEnabled = googleConfigured && body.tasksEnabled != null
 	const codes = asStringList(body.code)
 	const enabled = new Set(asStringList(body.enabled))
 	const coursesByCode = new Map(courseRows.map((row) => [row.code, row]))
 
 	await db
 		.update(outputCalendars)
-		.set({ name, addCanvasLink })
+		.set({ name, addCanvasLink, tasksListName, tasksEnabled })
 		.where(eq(outputCalendars.id, output.id))
 	await db
 		.delete(outputCalendarCourses)
@@ -521,6 +653,12 @@ app.get('/feed/:token', async (c) => {
 			output.name,
 			output.addCanvasLink,
 		)
+		// A calendar app refreshing its feed is the signal that this calendar is
+		// in use, so it doubles as the sync trigger. Deliberately not awaited:
+		// the feed should never wait on Google.
+		if (output.tasksEnabled) {
+			syncOutputCalendarInBackground(output.id)
+		}
 		return c.body(filtered, 200, {
 			'content-type': 'text/calendar; charset=utf-8',
 			'cache-control': 'no-store',

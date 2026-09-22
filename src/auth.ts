@@ -5,10 +5,12 @@ import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { Resend } from 'resend'
 import { db } from './db/index.ts'
 import * as authSchema from './db/auth-schema.ts'
-import { env } from './env.ts'
+import { env, googleConfigured } from './env.ts'
 import { isCsumbEmail } from './lib/util.ts'
 
 const resend = new Resend(env.RESEND_API_KEY)
+
+export const GOOGLE_TASKS_SCOPE = 'https://www.googleapis.com/auth/tasks'
 
 export const auth = betterAuth({
 	baseURL: env.BETTER_AUTH_URL,
@@ -21,6 +23,34 @@ export const auth = betterAuth({
 	emailAndPassword: {
 		enabled: false,
 	},
+	session: {
+		// Unlinking Google requires a session created within `freshAge`. Sign-in
+		// here costs an email round trip, so re-authenticating just to disconnect
+		// would strand anyone whose session is more than a day old.
+		freshAge: 0,
+	},
+	account: {
+		accountLinking: {
+			// Magic-link sign-in creates no account row, so Google is usually the
+			// only one. Without this, disconnecting it always fails.
+			allowUnlinkingAll: true,
+		},
+	},
+	socialProviders: googleConfigured
+		? {
+				google: {
+					clientId: env.GOOGLE_CLIENT_ID,
+					clientSecret: env.GOOGLE_CLIENT_SECRET,
+					// Needed for a refresh token, which the background sync relies on.
+					accessType: 'offline',
+					prompt: 'consent',
+					scope: [GOOGLE_TASKS_SCOPE],
+					// Google may only be linked to an existing account; it must not
+					// become a way around the @csumb.edu magic-link gate.
+					disableSignUp: true,
+				},
+			}
+		: undefined,
 	plugins: [
 		magicLink({
 			expiresIn: 60 * 5,

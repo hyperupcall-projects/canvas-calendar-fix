@@ -25,8 +25,16 @@ export const env = {
 	RESEND_FROM: required('RESEND_FROM'),
 	DATABASE_PATH: databasePath,
 	ADMIN_EMAIL: process.env.ADMIN_EMAIL?.trim().toLowerCase() ?? '',
+	GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID?.trim() ?? '',
+	GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET?.trim() ?? '',
 	PORT: Number(process.env.PORT ?? '3000'),
 }
+
+// Google Tasks sync is optional; without credentials the feature stays hidden
+// and the rest of the app runs unchanged.
+export const googleConfigured = Boolean(
+	env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET,
+)
 
 if (!Number.isInteger(env.PORT) || env.PORT <= 0) {
 	throw new Error('PORT must be a positive integer')
