@@ -96,6 +96,25 @@ body {
 
 .table-wrap {
 	overflow-x: auto;
+	margin-top: 1.25em;
+}
+
+.admin-controls {
+	margin-top: 1.25em;
+}
+
+.admin-controls label + label,
+.admin-controls .pure-button {
+	margin-left: 0.75em;
+}
+
+.admin-controls select {
+	margin-left: 0.4em;
+}
+
+.admin-table th,
+.admin-table td {
+	padding: 0.6em 1.1em;
 }
 
 .button-secondary {

@@ -99,7 +99,7 @@ export function AdminPage(props: {
 					Total users: <strong>{props.totalUsers}</strong>
 				</p>
 
-				<form method="get" action="/admin" class="pure-form">
+				<form method="get" action="/admin" class="pure-form admin-controls">
 					<label>
 						Sort by
 						<select name="sort">
@@ -131,7 +131,7 @@ export function AdminPage(props: {
 				</form>
 
 				<div class="table-wrap">
-					<table class="pure-table">
+					<table class="pure-table admin-table">
 						<thead>
 							<tr>
 								<th>
