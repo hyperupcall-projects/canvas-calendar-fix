@@ -34,14 +34,29 @@ describe('http routes', () => {
 		assert.equal(response.headers.get('location'), '/sign-in')
 	})
 
-	it('rejects non-csumb emails', async () => {
+	it('asks a non-school address to use a school account', async () => {
 		const response = await app.request('/sign-in', {
 			method: 'POST',
 			body: new URLSearchParams({ email: 'someone@gmail.com' }),
 			headers: { 'content-type': 'application/x-www-form-urlencoded' },
 		})
 		assert.equal(response.status, 400)
-		assert.match(await response.text(), /Only @csumb\.edu/)
+		assert.match(await response.text(), /You must sign in with your school account/)
+	})
+
+	it('points an unsupported .edu address at the support group', async () => {
+		const response = await app.request('/sign-in', {
+			method: 'POST',
+			body: new URLSearchParams({ email: 'someone@harvard.edu' }),
+			headers: { 'content-type': 'application/x-www-form-urlencoded' },
+		})
+		assert.equal(response.status, 400)
+		const html = await response.text()
+		assert.match(html, /support your school yet/)
+		assert.match(
+			html,
+			/groups\.google\.com\/g\/canvas-calendar-fix-support/,
+		)
 	})
 
 	it('redirects anonymous admin visits to the admin login', async () => {

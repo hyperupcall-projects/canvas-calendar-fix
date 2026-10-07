@@ -6,7 +6,7 @@ import { Resend } from 'resend'
 import { db } from './db/index.ts'
 import * as authSchema from './db/auth-schema.ts'
 import { env, googleConfigured } from './env.ts'
-import { isCsumbEmail } from './lib/util.ts'
+import { isSupportedSchoolEmail, unsupportedEmailMessage } from './lib/util.ts'
 
 const resend = new Resend(env.RESEND_API_KEY)
 
@@ -46,7 +46,7 @@ export const auth = betterAuth({
 					prompt: 'consent',
 					scope: [GOOGLE_TASKS_SCOPE],
 					// Google may only be linked to an existing account; it must not
-					// become a way around the @csumb.edu magic-link gate.
+					// become a way around the magic-link school-email gate.
 					disableSignUp: true,
 				},
 			}
@@ -79,9 +79,9 @@ export const auth = betterAuth({
 			const email = String(
 				(ctx.body as { email?: string } | undefined)?.email ?? '',
 			)
-			if (!isCsumbEmail(email)) {
+			if (!isSupportedSchoolEmail(email)) {
 				throw new APIError('BAD_REQUEST', {
-					message: 'Only @csumb.edu email addresses are allowed.',
+					message: unsupportedEmailMessage(email),
 				})
 			}
 		}),

@@ -10,11 +10,21 @@ describe('assertCanvasFeedUrl', () => {
 		assert.equal(url.hostname, 'csumb.instructure.com')
 	})
 
+	it('accepts other schools hosted on instructure.com', () => {
+		const url = assertCanvasFeedUrl(
+			'https://ucla.instructure.com/feeds/calendars/user_abc.ics',
+		)
+		assert.equal(url.hostname, 'ucla.instructure.com')
+	})
+
 	it('rejects other hosts and http', () => {
 		assert.throws(() =>
 			assertCanvasFeedUrl('http://csumb.instructure.com/feed.ics'),
 		)
 		assert.throws(() => assertCanvasFeedUrl('https://evil.example/feed.ics'))
+		assert.throws(() =>
+			assertCanvasFeedUrl('https://notinstructure.com/feed.ics'),
+		)
 		assert.throws(() => assertCanvasFeedUrl('not-a-url'))
 	})
 })

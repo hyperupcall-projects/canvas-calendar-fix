@@ -1,3 +1,4 @@
+import { SUPPORT_REQUEST_URL } from '../lib/util.ts'
 import { ErrorBanner, Layout } from './layout.tsx'
 
 export function SignInPage(props: { error?: string | null }) {
@@ -5,7 +6,7 @@ export function SignInPage(props: { error?: string | null }) {
 		<Layout title="Sign in">
 			<section>
 				<h1>Sign in</h1>
-				<p>Enter your CSUMB email to receive a sign-in link.</p>
+				<p>Enter your school email to receive a sign-in link.</p>
 				<ErrorBanner message={props.error} />
 				<form
 					method="post"
@@ -20,13 +21,20 @@ export function SignInPage(props: { error?: string | null }) {
 							name="email"
 							required
 							autocomplete="email"
-							placeholder="you@csumb.edu"
+							placeholder="you@university.edu"
 						/>
 					</label>
 					<button type="submit" class="pure-button pure-button-primary">
 						Email me a sign-in link
 					</button>
 				</form>
+				<p class="form-hint">
+					Don't see your school? Request it in our{' '}
+					<a href={SUPPORT_REQUEST_URL} target="_blank" rel="noreferrer">
+						support group
+					</a>
+					.
+				</p>
 			</section>
 		</Layout>
 	)

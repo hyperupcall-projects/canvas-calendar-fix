@@ -28,9 +28,10 @@ import {
 } from './lib/task-sync.ts'
 import {
 	asStringList,
-	isCsumbEmail,
+	isSupportedSchoolEmail,
 	newId,
 	newPublicToken,
+	unsupportedEmailMessage,
 } from './lib/util.ts'
 import {
 	AdminCheckEmailPage,
@@ -227,11 +228,8 @@ app.post('/sign-in', async (c) => {
 	const email = String(body.email ?? '')
 		.trim()
 		.toLowerCase()
-	if (!isCsumbEmail(email)) {
-		return c.html(
-			<SignInPage error="Only @csumb.edu email addresses are allowed." />,
-			400,
-		)
+	if (!isSupportedSchoolEmail(email)) {
+		return c.html(<SignInPage error={unsupportedEmailMessage(email)} />, 400)
 	}
 
 	try {
@@ -739,9 +737,9 @@ app.post('/admin/login', async (c) => {
 			403,
 		)
 	}
-	if (!isCsumbEmail(email)) {
+	if (!isSupportedSchoolEmail(email)) {
 		return c.html(
-			<AdminLoginPage error="Only @csumb.edu email addresses are allowed." />,
+			<AdminLoginPage error={unsupportedEmailMessage(email)} />,
 			400,
 		)
 	}

@@ -52,7 +52,7 @@ export function AdminLoginPage(props: { error?: string | null }) {
 							name="email"
 							required
 							autocomplete="email"
-							placeholder="you@csumb.edu"
+							placeholder="you@university.edu"
 						/>
 					</label>
 					<button type="submit" class="pure-button pure-button-primary">
