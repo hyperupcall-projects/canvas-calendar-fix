@@ -26,12 +26,18 @@ export function DashboardPage(props: {
 	outputs: DashboardOutput[]
 	googleConfigured?: boolean
 	googleConnected?: boolean
+	beta?: boolean
 	error?: string | null
 	success?: string | null
 }) {
 	const canAdd =
 		props.outputs.length > 0 && props.outputs.length < MAX_OUTPUT_CALENDARS
 	const canRemove = props.outputs.length > 1
+	// Google Tasks is a beta feature: it only appears when the dashboard is
+	// opened with ?beta=true. The flag rides along on every form so it survives
+	// a save or a sync.
+	const beta = props.beta === true
+	const betaQuery = beta ? '?beta=true' : ''
 
 	return (
 		<Layout
@@ -54,7 +60,7 @@ export function DashboardPage(props: {
 				<h2>Canvas Calendar URL</h2>
 				<form
 					method="post"
-					action="/dashboard/source"
+					action={`/dashboard/source${betaQuery}`}
 					class="pure-form pure-form-stacked"
 				>
 					<label>
@@ -76,7 +82,7 @@ export function DashboardPage(props: {
 							<button
 								type="submit"
 								class="pure-button"
-								formaction="/dashboard/source/reset"
+								formaction={`/dashboard/source/reset${betaQuery}`}
 								formnovalidate
 							>
 								Remove calendar URL
@@ -86,7 +92,7 @@ export function DashboardPage(props: {
 				</form>
 			</section>
 
-			{props.googleConfigured ? (
+			{props.googleConfigured && beta ? (
 				<section>
 					<h2>Google Tasks</h2>
 					{props.googleConnected ? (
@@ -98,7 +104,10 @@ export function DashboardPage(props: {
 								that they are yours to edit, complete or delete, and this app
 								will not touch or re-add them.
 							</p>
-							<form method="post" action="/dashboard/google/disconnect">
+							<form
+								method="post"
+								action={`/dashboard/google/disconnect${betaQuery}`}
+							>
 								<button type="submit" class="pure-button">
 									Disconnect Google
 								</button>
@@ -125,7 +134,10 @@ export function DashboardPage(props: {
 								Tasks. An assignment is any event due just before midnight, or
 								any event shorter than 20 minutes.
 							</p>
-							<form method="post" action="/dashboard/google/connect">
+							<form
+								method="post"
+								action={`/dashboard/google/connect${betaQuery}`}
+							>
 								<button type="submit" class="pure-button pure-button-primary">
 									Connect Google
 								</button>
@@ -157,7 +169,7 @@ export function DashboardPage(props: {
 										{canRemove ? (
 											<form
 												method="post"
-												action={`/dashboard/outputs/${output.id}/delete`}
+												action={`/dashboard/outputs/${output.id}/delete${betaQuery}`}
 											>
 												<button type="submit" class="pure-button">
 													Remove calendar
@@ -167,7 +179,7 @@ export function DashboardPage(props: {
 									</div>
 									<form
 										method="post"
-										action={`/dashboard/outputs/${output.id}`}
+										action={`/dashboard/outputs/${output.id}${betaQuery}`}
 										class="pure-form pure-form-stacked"
 									>
 										<fieldset>
@@ -218,7 +230,7 @@ export function DashboardPage(props: {
 												Modify event description to add Canvas link
 												(recommended)
 											</label>
-											{props.googleConfigured ? (
+											{props.googleConfigured && beta ? (
 												<>
 													<label class="pure-checkbox">
 														<input
@@ -286,11 +298,11 @@ export function DashboardPage(props: {
 												>
 													Save calendar
 												</button>
-												{props.googleConfigured ? (
+												{props.googleConfigured && beta ? (
 													<button
 														type="submit"
 														class="pure-button"
-														formaction={`/dashboard/outputs/${output.id}/sync`}
+														formaction={`/dashboard/outputs/${output.id}/sync${betaQuery}`}
 														formnovalidate
 														disabled={
 															!props.googleConnected || !output.tasksEnabled
@@ -306,7 +318,7 @@ export function DashboardPage(props: {
 							)
 						})}
 						{canAdd ? (
-							<form method="post" action="/dashboard/outputs">
+							<form method="post" action={`/dashboard/outputs${betaQuery}`}>
 								<button type="submit" class="pure-button button-secondary" style="margin-top: 0.5em;">
 									Add another calendar
 								</button>

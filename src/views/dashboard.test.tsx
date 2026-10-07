@@ -163,6 +163,30 @@ describe('DashboardPage', () => {
 		assert.doesNotMatch(html, /Sync now/)
 	})
 
+	it('hides Google Tasks unless the dashboard is opened with beta=true', async () => {
+		const node = (
+			<DashboardPage
+				email="test@csumb.edu"
+				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				courses={[{ code: 'CST463-01_2264' }]}
+				outputs={[
+					makeOutput({
+						id: 'out-1',
+						name: 'Calendar 1',
+						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+					}),
+				]}
+				googleConfigured
+				googleConnected
+			/>
+		)
+		const html = await Promise.resolve(String(node))
+		assert.doesNotMatch(html, /Google Tasks/)
+		assert.doesNotMatch(html, /tasksListName/)
+		assert.doesNotMatch(html, /Sync now/)
+		assert.doesNotMatch(html, /beta=true/)
+	})
+
 	it('offers to connect Google and keeps the per-calendar toggle disabled', async () => {
 		const node = (
 			<DashboardPage
@@ -177,15 +201,16 @@ describe('DashboardPage', () => {
 					}),
 				]}
 				googleConfigured
+				beta
 			/>
 		)
 		const html = await Promise.resolve(String(node))
-		assert.match(html, /action="\/dashboard\/google\/connect"/)
-		assert.doesNotMatch(html, /action="\/dashboard\/google\/disconnect"/)
+		assert.match(html, /action="\/dashboard\/google\/connect\?beta=true"/)
+		assert.doesNotMatch(html, /action="\/dashboard\/google\/disconnect/)
 		assert.match(html, /name="tasksEnabled"[^>]*disabled=""/)
 		assert.match(html, /Sync now/)
 		const syncButton = html.slice(
-			html.indexOf('formaction="/dashboard/outputs/out-1/sync"'),
+			html.indexOf('formaction="/dashboard/outputs/out-1/sync?beta=true"'),
 		)
 		assert.match(syncButton.slice(0, syncButton.indexOf('>')), /disabled=""/)
 	})
@@ -209,10 +234,11 @@ describe('DashboardPage', () => {
 				]}
 				googleConfigured
 				googleConnected
+				beta
 			/>
 		)
 		const html = await Promise.resolve(String(node))
-		assert.match(html, /action="\/dashboard\/google\/disconnect"/)
+		assert.match(html, /action="\/dashboard\/google\/disconnect\?beta=true"/)
 		assert.match(html, /myaccount\.google\.com\/permissions/)
 		assert.match(html, /stay in your Google\s+account/)
 		assert.match(html, /name="tasksEnabled" checked=""/)
@@ -222,7 +248,7 @@ describe('DashboardPage', () => {
 		assert.match(html, /Last synced: Sep 7, 2026/)
 
 		const syncButton = html.slice(
-			html.indexOf('formaction="/dashboard/outputs/out-1/sync"'),
+			html.indexOf('formaction="/dashboard/outputs/out-1/sync?beta=true"'),
 		)
 		assert.doesNotMatch(syncButton.slice(0, syncButton.indexOf('>')), /disabled/)
 	})
@@ -244,6 +270,7 @@ describe('DashboardPage', () => {
 				]}
 				googleConfigured
 				googleConnected
+				beta
 			/>
 		)
 		const html = await Promise.resolve(String(node))

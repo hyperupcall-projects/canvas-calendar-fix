@@ -1,4 +1,4 @@
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { asc, count, desc, eq, max, sql } from 'drizzle-orm'
 import { auth } from './auth.ts'
@@ -146,8 +146,27 @@ function sanitizeTasksListName(raw: string): string | null {
 	return name.length > 0 ? name : null
 }
 
-function redirectWithError(message: string): string {
-	return `/dashboard?error=${encodeURIComponent(message)}`
+function isBeta(c: Context<AppEnv>): boolean {
+	return c.req.query('beta') === 'true'
+}
+
+// The Google Tasks feature sits behind ?beta=true, so every link back to the
+// dashboard has to carry the flag or its controls would vanish mid-task.
+function dashboardUrl(
+	beta: boolean,
+	params: Record<string, string> = {},
+): string {
+	const parts = Object.entries(params).map(
+		([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+	)
+	if (beta) {
+		parts.push('beta=true')
+	}
+	return parts.length > 0 ? `/dashboard?${parts.join('&')}` : '/dashboard'
+}
+
+function redirectWithError(message: string, beta: boolean): string {
+	return dashboardUrl(beta, { error: message })
 }
 
 async function includeCourseInOutputs(
@@ -252,6 +271,7 @@ app.get('/dashboard', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
 	const { calendar, courseRows, outputRows, memberships } =
 		await loadCalendarForUser(currentUser.id)
 	const enabledByOutput = new Map<string, string[]>()
@@ -283,6 +303,7 @@ app.get('/dashboard', async (c) => {
 			}))}
 			googleConfigured={googleConfigured}
 			googleConnected={googleConnected}
+			beta={beta}
 			error={c.req.query('error')}
 			success={
 				c.req.query('saved')
@@ -306,16 +327,24 @@ app.post('/dashboard/google/connect', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
 	if (!googleConfigured) {
-		return c.redirect(redirectWithError('Google Tasks sync is not configured.'))
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not configured.', beta),
+		)
+	}
+	if (!beta) {
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not available.', beta),
+		)
 	}
 
 	try {
 		const link = await auth.api.linkSocialAccount({
 			body: {
 				provider: 'google',
-				callbackURL: '/dashboard?connected=1',
-				errorCallbackURL: '/dashboard',
+				callbackURL: dashboardUrl(beta, { connected: '1' }),
+				errorCallbackURL: dashboardUrl(beta),
 				disableRedirect: true,
 			},
 			headers: c.req.raw.headers,
@@ -329,7 +358,7 @@ app.post('/dashboard/google/connect', async (c) => {
 			error instanceof Error
 				? error.message
 				: 'Could not start the Google connection.'
-		return c.redirect(redirectWithError(message))
+		return c.redirect(redirectWithError(message, beta))
 	}
 })
 
@@ -338,10 +367,18 @@ app.post('/dashboard/google/disconnect', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
+	if (!beta) {
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not available.', beta),
+		)
+	}
 
 	const linked = await googleAccountFor(currentUser.id)
 	if (!linked) {
-		return c.redirect(redirectWithError('No Google account is connected.'))
+		return c.redirect(
+			redirectWithError('No Google account is connected.', beta),
+		)
 	}
 
 	try {
@@ -354,7 +391,7 @@ app.post('/dashboard/google/disconnect', async (c) => {
 			error instanceof Error
 				? error.message
 				: 'Could not disconnect the Google account.'
-		return c.redirect(redirectWithError(message))
+		return c.redirect(redirectWithError(message, beta))
 	}
 
 	// The task lists themselves stay in the user's Google account; they hold
@@ -372,7 +409,7 @@ app.post('/dashboard/google/disconnect', async (c) => {
 			.where(eq(outputCalendars.id, output.id))
 	}
 
-	return c.redirect('/dashboard?disconnected=1')
+	return c.redirect(dashboardUrl(beta, { disconnected: '1' }))
 })
 
 app.post('/dashboard/source', async (c) => {
@@ -380,6 +417,7 @@ app.post('/dashboard/source', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
 
 	const body = await c.req.parseBody()
 	const rawUrl = String(body.sourceUrl ?? '')
@@ -463,10 +501,10 @@ app.post('/dashboard/source', async (c) => {
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : 'Could not load that calendar.'
-		return c.redirect(`/dashboard?error=${encodeURIComponent(message)}`)
+		return c.redirect(redirectWithError(message, beta))
 	}
 
-	return c.redirect('/dashboard?saved=1')
+	return c.redirect(dashboardUrl(beta, { saved: '1' }))
 })
 
 app.post('/dashboard/source/reset', async (c) => {
@@ -476,7 +514,7 @@ app.post('/dashboard/source/reset', async (c) => {
 	}
 
 	await db.delete(calendars).where(eq(calendars.userId, currentUser.id))
-	return c.redirect('/dashboard?reset=1')
+	return c.redirect(dashboardUrl(isBeta(c), { reset: '1' }))
 })
 
 app.post('/dashboard/outputs', async (c) => {
@@ -484,22 +522,21 @@ app.post('/dashboard/outputs', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
 
 	const { calendar, courseRows, outputRows } = await loadCalendarForUser(
 		currentUser.id,
 	)
 	if (!calendar) {
 		return c.redirect(
-			'/dashboard?error=' +
-				encodeURIComponent('Save a Canvas calendar URL first.'),
+			redirectWithError('Save a Canvas calendar URL first.', beta),
 		)
 	}
 
 	const position = nextOutputPosition(outputRows)
 	if (position == null) {
 		return c.redirect(
-			'/dashboard?error=' +
-				encodeURIComponent('You can create at most 4 calendars.'),
+			redirectWithError('You can create at most 4 calendars.', beta),
 		)
 	}
 
@@ -508,7 +545,7 @@ app.post('/dashboard/outputs', async (c) => {
 		position,
 		courseRows.map((row) => row.id),
 	)
-	return c.redirect('/dashboard?saved=1')
+	return c.redirect(dashboardUrl(beta, { saved: '1' }))
 })
 
 app.post('/dashboard/outputs/:id/delete', async (c) => {
@@ -516,26 +553,24 @@ app.post('/dashboard/outputs/:id/delete', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
 
 	const outputId = c.req.param('id')
 	const { outputRows } = await loadCalendarForUser(currentUser.id)
 	const output = outputRows.find((row) => row.id === outputId)
 	if (!output) {
-		return c.redirect(
-			'/dashboard?error=' + encodeURIComponent('That calendar was not found.'),
-		)
+		return c.redirect(redirectWithError('That calendar was not found.', beta))
 	}
 	if (outputRows.length <= 1) {
 		return c.redirect(
-			'/dashboard?error=' +
-				encodeURIComponent('Keep at least one output calendar.'),
+			redirectWithError('Keep at least one output calendar.', beta),
 		)
 	}
 
 	// Any Google task list this calendar fed stays put. Removing it would throw
 	// away tasks the user may still be working through.
 	await db.delete(outputCalendars).where(eq(outputCalendars.id, output.id))
-	return c.redirect('/dashboard?saved=1')
+	return c.redirect(dashboardUrl(beta, { saved: '1' }))
 })
 
 app.post('/dashboard/outputs/:id/sync', async (c) => {
@@ -543,20 +578,26 @@ app.post('/dashboard/outputs/:id/sync', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
+	if (!beta) {
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not available.', beta),
+		)
+	}
 
 	const outputId = c.req.param('id')
 	const { outputRows } = await loadCalendarForUser(currentUser.id)
 	const output = outputRows.find((row) => row.id === outputId)
 	if (!output) {
-		return c.redirect(redirectWithError('That calendar was not found.'))
+		return c.redirect(redirectWithError('That calendar was not found.', beta))
 	}
 
 	const result = await syncOutputCalendar(output.id)
 	if (!result.ok) {
-		return c.redirect(redirectWithError(result.message))
+		return c.redirect(redirectWithError(result.message, beta))
 	}
 	const summary = `${result.added} added, ${result.skipped} already there.`
-	return c.redirect(`/dashboard?synced=${encodeURIComponent(summary)}`)
+	return c.redirect(dashboardUrl(beta, { synced: summary }))
 })
 
 app.post('/dashboard/outputs/:id', async (c) => {
@@ -564,6 +605,7 @@ app.post('/dashboard/outputs/:id', async (c) => {
 	if (!currentUser) {
 		return c.redirect('/sign-in')
 	}
+	const beta = isBeta(c)
 
 	const outputId = c.req.param('id')
 	const { calendar, courseRows, outputRows } = await loadCalendarForUser(
@@ -571,9 +613,7 @@ app.post('/dashboard/outputs/:id', async (c) => {
 	)
 	const output = outputRows.find((row) => row.id === outputId)
 	if (!calendar || !output) {
-		return c.redirect(
-			'/dashboard?error=' + encodeURIComponent('That calendar was not found.'),
-		)
+		return c.redirect(redirectWithError('That calendar was not found.', beta))
 	}
 
 	const body = await c.req.parseBody({ all: true })
@@ -582,7 +622,8 @@ app.post('/dashboard/outputs/:id', async (c) => {
 	// Saved even while the toggle is off, so a name typed before connecting
 	// Google survives.
 	const tasksListName = sanitizeTasksListName(String(body.tasksListName ?? ''))
-	const tasksEnabled = googleConfigured && body.tasksEnabled != null
+	const tasksEnabled =
+		googleConfigured && beta && body.tasksEnabled != null
 	const codes = asStringList(body.code)
 	const enabled = new Set(asStringList(body.enabled))
 	const coursesByCode = new Map(courseRows.map((row) => [row.code, row]))
@@ -609,7 +650,7 @@ app.post('/dashboard/outputs/:id', async (c) => {
 		})
 	}
 
-	return c.redirect('/dashboard?saved=1')
+	return c.redirect(dashboardUrl(beta, { saved: '1' }))
 })
 
 app.get('/feed/:token', async (c) => {

@@ -6,6 +6,8 @@ See it in action: https://www.tella.tv/video/canvas-calendar-fix-9s5n.
 
 Each output calendar can mirror its assignments into its own Google task list. Leave `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` unset and the feature stays hidden; the rest of the app is unaffected.
 
+This feature is in beta and is only shown when the dashboard is opened with `?beta=true`, for example `/dashboard?beta=true`. Every link and form keeps the flag, so it stays visible while you work.
+
 To enable it:
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create a project and enable the **Google Tasks API**.
@@ -17,7 +19,7 @@ To enable it:
     In production use your real origin, for example `https://example.com/api/auth/callback/google`.
 4. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `.env`.
 
-Then press **Connect Google** on `/dashboard` and tick *Sync assignments in this calendar to Google Tasks* on each output calendar you want mirrored. Every calendar gets its own list, named independently of the calendar; leave the name blank to reuse the calendar name. **Sync now** is greyed out until the toggle is saved.
+Then open `/dashboard?beta=true` and press **Connect Google**, and tick *Sync assignments in this calendar to Google Tasks* on each output calendar you want mirrored. Every calendar gets its own list, named independently of the calendar; leave the name blank to reuse the calendar name. **Sync now** is greyed out until the toggle is saved.
 
 ### When it syncs, and what it will not touch
 

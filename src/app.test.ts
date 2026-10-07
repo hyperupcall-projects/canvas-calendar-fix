@@ -538,14 +538,17 @@ describe('http routes', () => {
 
 			const signed = `${sessionToken}.${await makeSignature(sessionToken, env.BETTER_AUTH_SECRET)}`
 			const cookie = `better-auth.session_token=${encodeURIComponent(signed)}`
-			const response = await app.request('/dashboard/google/disconnect', {
-				method: 'POST',
-				headers: { cookie },
-			})
+			const response = await app.request(
+				'/dashboard/google/disconnect?beta=true',
+				{
+					method: 'POST',
+					headers: { cookie },
+				},
+			)
 			assert.equal(response.status, 302)
 			assert.equal(
 				response.headers.get('location'),
-				'/dashboard?disconnected=1',
+				'/dashboard?disconnected=1&beta=true',
 			)
 
 			assert.equal(
