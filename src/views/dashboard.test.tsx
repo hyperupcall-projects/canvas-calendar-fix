@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { MAX_OUTPUT_CALENDARS } from '../db/schema.ts'
 import { DashboardPage, type DashboardOutput } from './dashboard.tsx'
 
 function makeOutput(
@@ -105,12 +106,12 @@ describe('DashboardPage', () => {
 		assert.doesNotMatch(html, />Remove calendar</)
 	})
 
-	it('hides add when four calendars already exist', async () => {
-		const outputs = [1, 2, 3, 4].map((n) =>
+	it(`hides add when ${MAX_OUTPUT_CALENDARS} calendars already exist`, async () => {
+		const outputs = Array.from({ length: MAX_OUTPUT_CALENDARS }, (_, index) =>
 			makeOutput({
-				id: `out-${n}`,
-				name: `Calendar ${n}`,
-				feedUrl: `http://localhost:3000/feed/token-${n}.ics`,
+				id: `out-${index + 1}`,
+				name: `Calendar ${index + 1}`,
+				feedUrl: `http://localhost:3000/feed/token-${index + 1}.ics`,
 			}),
 		)
 		const node = (

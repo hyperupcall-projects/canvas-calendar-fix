@@ -9,6 +9,7 @@ import {
 	calendars,
 	courses,
 	defaultOutputName,
+	MAX_OUTPUT_CALENDARS,
 	nextOutputPosition,
 	outputCalendarCourses,
 	outputCalendars,
@@ -534,7 +535,10 @@ app.post('/dashboard/outputs', async (c) => {
 	const position = nextOutputPosition(outputRows)
 	if (position == null) {
 		return c.redirect(
-			redirectWithError('You can create at most 4 calendars.', beta),
+			redirectWithError(
+				`You can create at most ${MAX_OUTPUT_CALENDARS} calendars.`,
+				beta,
+			),
 		)
 	}
 

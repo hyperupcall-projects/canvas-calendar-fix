@@ -47,8 +47,9 @@ export function DashboardPage(props: {
 			<section>
 				<h1>Canvas Calendar Fix</h1>
 				<p>
-					Paste the ICS feed from Canvas, then create up to four output calendars for use in
-					Google Calendar, Outlook, or other calendar apps.
+					Paste the ICS feed from Canvas, then create up to{' '}
+					{MAX_OUTPUT_CALENDARS} output calendars for use in Google Calendar,
+					Outlook, or other calendar apps.
 				</p>
 				<p>
 					The generated output calendar address should stay private. Anyone

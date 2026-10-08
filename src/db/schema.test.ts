@@ -11,11 +11,11 @@ describe('nextOutputPosition', () => {
 		assert.equal(nextOutputPosition([]), 1)
 		assert.equal(nextOutputPosition([{ position: 1 }]), 2)
 		assert.equal(nextOutputPosition([{ position: 1 }, { position: 3 }]), 2)
-		assert.equal(
-			nextOutputPosition([1, 2, 3, 4].map((position) => ({ position }))),
-			null,
-		)
-		assert.equal(MAX_OUTPUT_CALENDARS, 4)
+		const full = Array.from({ length: MAX_OUTPUT_CALENDARS }, (_, index) => ({
+			position: index + 1,
+		}))
+		assert.equal(nextOutputPosition(full), null)
+		assert.equal(MAX_OUTPUT_CALENDARS, 8)
 		assert.equal(defaultOutputName(2), 'Calendar 2')
 	})
 })
