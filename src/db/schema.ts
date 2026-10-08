@@ -7,7 +7,7 @@ import {
 } from 'drizzle-orm/sqlite-core'
 import { user } from './auth-schema.ts'
 
-export const MAX_OUTPUT_CALENDARS = 4
+export const MAX_OUTPUT_CALENDARS = 8
 
 export const calendars = sqliteTable('calendars', {
 	id: text('id').primaryKey(),
