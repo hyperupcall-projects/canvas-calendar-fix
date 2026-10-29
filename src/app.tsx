@@ -299,7 +299,11 @@ app.get('/dashboard', async (c) => {
 			taskListNames = (await listGoogleTaskLists(currentUser.id))
 				.map((list) => list.title)
 				.filter((title) => title.length > 0)
-		} catch {
+		} catch (error) {
+			console.error(
+				'[google-tasks] Could not load task lists for the dashboard:',
+				error,
+			)
 			taskListNames = []
 		}
 	}
@@ -390,6 +394,7 @@ app.post('/dashboard/google/connect', async (c) => {
 		await copyAuthCookies(authResponse, redirect)
 		return redirect
 	} catch (error) {
+		console.error('[google] Could not start the Google connection:', error)
 		const message =
 			error instanceof Error
 				? error.message
@@ -423,6 +428,7 @@ app.post('/dashboard/google/disconnect', async (c) => {
 			headers: c.req.raw.headers,
 		})
 	} catch (error) {
+		console.error('[google] Could not disconnect the Google account:', error)
 		const message =
 			error instanceof Error
 				? error.message

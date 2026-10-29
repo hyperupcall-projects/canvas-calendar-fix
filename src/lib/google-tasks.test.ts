@@ -208,6 +208,33 @@ describe('task mutations', () => {
 })
 
 describe('error handling', () => {
+	it('logs the full error and response body to the server console', async () => {
+		const logged: unknown[][] = []
+		const originalConsoleError = console.error
+		console.error = (...args: unknown[]) => {
+			logged.push(args)
+		}
+		try {
+			stubFetch(() => ({
+				status: 400,
+				body: { error: { message: 'Request contains an invalid argument.' } },
+			}))
+			await assert.rejects(() =>
+				insertTask('token', 'list-1', { title: 'x', due: 'y' }),
+			)
+		} finally {
+			console.error = originalConsoleError
+		}
+
+		const output = logged.flat().map(String).join('\n')
+		assert.match(output, /\[google-tasks\] POST .* failed with HTTP 400/)
+		assert.match(output, /GoogleTasksError/)
+		assert.match(
+			output,
+			/response body: .*Request contains an invalid argument\./,
+		)
+	})
+
 	it('raises GoogleTasksError carrying the status', async () => {
 		stubFetch(() => ({ status: 403 }))
 		await assert.rejects(

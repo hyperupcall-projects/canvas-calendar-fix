@@ -1,6 +1,7 @@
 const API_BASE = 'https://tasks.googleapis.com/tasks/v1'
 const FETCH_TIMEOUT_MS = 15_000
 const MAX_RESULTS_PER_PAGE = 100
+const LOG_PREFIX = '[google-tasks]'
 
 export type GoogleTask = {
 	id: string
@@ -34,11 +35,31 @@ export class GoogleTasksError extends Error {
 	}
 }
 
+/**
+ * Logs a failed call with the full error and response body before it travels up,
+ * so the server console has enough detail to diagnose a sync failure without
+ * having to reproduce it. The access token lives in a header, so it is never
+ * part of the logged URL.
+ */
+function logFailedRequest(
+	method: string,
+	url: URL,
+	error: unknown,
+	response?: { status: number; body: string },
+): void {
+	const status = response ? ` with HTTP ${response.status}` : ''
+	console.error(`${LOG_PREFIX} ${method} ${url.href} failed${status}:`, error)
+	if (response?.body) {
+		console.error(`${LOG_PREFIX} response body: ${response.body}`)
+	}
+}
+
 async function request(
 	accessToken: string,
 	path: string,
 	init: { method?: string; body?: unknown; query?: Record<string, string> } = {},
 ): Promise<unknown> {
+	const method = init.method ?? 'GET'
 	const url = new URL(`${API_BASE}${path}`)
 	for (const [key, value] of Object.entries(init.query ?? {})) {
 		url.searchParams.set(key, value)
@@ -48,7 +69,7 @@ async function request(
 	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 	try {
 		const response = await fetch(url, {
-			method: init.method ?? 'GET',
+			method,
 			signal: controller.signal,
 			headers: {
 				authorization: `Bearer ${accessToken}`,
@@ -64,10 +85,15 @@ async function request(
 			// is actionable instead of just an opaque status code.
 			const detail = (await response.text().catch(() => '')).trim()
 			const suffix = detail.length > 0 ? `: ${detail.slice(0, 300)}` : '.'
-			throw new GoogleTasksError(
+			const error = new GoogleTasksError(
 				response.status,
 				`Google Tasks returned HTTP ${response.status}${suffix}`,
 			)
+			logFailedRequest(method, url, error, {
+				status: response.status,
+				body: detail,
+			})
+			throw error
 		}
 		if (response.status === 204) {
 			return null
@@ -76,7 +102,16 @@ async function request(
 		return text.length > 0 ? JSON.parse(text) : null
 	} catch (error) {
 		if (error instanceof Error && error.name === 'AbortError') {
+			console.error(
+				`${LOG_PREFIX} ${method} ${url.href} timed out after ${FETCH_TIMEOUT_MS}ms:`,
+				error,
+			)
 			throw new Error('Timed out talking to Google Tasks.')
+		}
+		// A GoogleTasksError was already logged where it was created; anything
+		// else here is a network, DNS or JSON parsing failure.
+		if (!(error instanceof GoogleTasksError)) {
+			logFailedRequest(method, url, error)
 		}
 		throw error
 	} finally {

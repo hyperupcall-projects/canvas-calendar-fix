@@ -203,7 +203,7 @@ export function DashboardPage(props: {
 									class="pure-button"
 									disabled={!googleTasks.enabled}
 								>
-									Sync now
+									Sync
 								</button>
 							</form>
 							<form
@@ -220,8 +220,7 @@ export function DashboardPage(props: {
 								</button>
 							</form>
 							<p class="form-hint">
-								Refresh rebuilds every task from the feed, including any you
-								have deleted in Google Tasks.
+								It's not typically necessary to run sync or refresh manually. Sync is ran automatically after every request to fetch the calendar. If you complete or delete a task, it stays that way. But, refresh starts fresh, recreating all tasks from the calendar feed. Only run this if you run into issues.
 							</p>
 							<form
 								method="post"

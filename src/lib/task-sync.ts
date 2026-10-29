@@ -173,13 +173,21 @@ async function googleAccessToken(userId: string): Promise<string> {
 	}
 	// Called without headers so a background run, which has no request session,
 	// resolves the user from `userId`. Refreshing an expired token happens here.
-	const token = await auth.api.getAccessToken({
-		body: { accountId: linked.id, userId },
-	})
-	if (!token?.accessToken) {
-		throw new Error('Could not get a Google access token.')
+	try {
+		const token = await auth.api.getAccessToken({
+			body: { accountId: linked.id, userId },
+		})
+		if (!token?.accessToken) {
+			throw new Error('Could not get a Google access token.')
+		}
+		return token.accessToken
+	} catch (error) {
+		console.error(
+			`[google-tasks] Could not get a Google access token for user ${userId}:`,
+			error,
+		)
+		throw error
 	}
-	return token.accessToken
 }
 
 /** The account's task lists, for the dashboard list picker. */
@@ -413,6 +421,7 @@ export async function syncGoogleTasks(
 			.where(eq(googleTasksSettings.userId, userId))
 		return { ok: true, ...counts }
 	} catch (error) {
+		console.error(`[google-tasks] Sync failed for user ${userId}:`, error)
 		const message =
 			error instanceof Error ? error.message : 'Could not sync Google Tasks.'
 		await db
