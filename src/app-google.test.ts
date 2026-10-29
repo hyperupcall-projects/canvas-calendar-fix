@@ -72,7 +72,7 @@ describe('google tasks routes', () => {
 		)
 	})
 
-	it('saves the enable flag, list name and due offset', async () => {
+	it('saves the enable flag, list name, due offset and skip threshold', async () => {
 		const { userId, cookie } = await makeUser('gsave')
 		try {
 			const response = await postSettings(
@@ -81,6 +81,7 @@ describe('google tasks routes', () => {
 					['enabled', 'on'],
 					['listName', 'Homework'],
 					['dueOffsetDays', '3'],
+					['skipOlderThanDays', '2'],
 				]),
 			)
 			assert.equal(response.status, 302)
@@ -96,24 +97,29 @@ describe('google tasks routes', () => {
 			assert.equal(row?.enabled, true)
 			assert.equal(row?.listName, 'Homework')
 			assert.equal(row?.dueOffsetDays, 3)
+			assert.equal(row?.skipOlderThanDays, 2)
 			assert.equal(row?.listId, null)
 		} finally {
 			await db.delete(user).where(eq(user.id, userId))
 		}
 	})
 
-	it('clamps an out-of-range due offset and defaults the toggle to off', async () => {
+	it('clamps out-of-range settings and defaults the toggle to off', async () => {
 		const { userId, cookie } = await makeUser('gclamp')
 		try {
 			await postSettings(
 				cookie,
-				new URLSearchParams([['dueOffsetDays', '99']]),
+				new URLSearchParams([
+					['dueOffsetDays', '99'],
+					['skipOlderThanDays', '99'],
+				]),
 			)
 			const [row] = await db
 				.select()
 				.from(googleTasksSettings)
 				.where(eq(googleTasksSettings.userId, userId))
 			assert.equal(row?.dueOffsetDays, 14)
+			assert.equal(row?.skipOlderThanDays, 30)
 			assert.equal(row?.enabled, false)
 		} finally {
 			await db.delete(user).where(eq(user.id, userId))

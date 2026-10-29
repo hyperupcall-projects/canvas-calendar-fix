@@ -1,8 +1,10 @@
 import {
 	DEFAULT_DUE_OFFSET_DAYS,
+	DEFAULT_SKIP_OLDER_THAN_DAYS,
 	DEFAULT_TASK_LIST_NAME,
 	dueOffsetOptions,
 	MAX_OUTPUT_CALENDARS,
+	skipOlderThanOptions,
 } from '../db/schema.ts'
 import { formatPacific } from '../lib/util.ts'
 import { ErrorBanner, Layout, SuccessBanner, UserNav } from './layout.tsx'
@@ -23,6 +25,7 @@ export type DashboardGoogleTasks = {
 	enabled: boolean
 	listName: string | null
 	dueOffsetDays: number
+	skipOlderThanDays: number
 	lastSyncAt: Date | null
 	lastSyncError: string | null
 }
@@ -31,6 +34,7 @@ const DEFAULT_GOOGLE_TASKS: DashboardGoogleTasks = {
 	enabled: false,
 	listName: null,
 	dueOffsetDays: DEFAULT_DUE_OFFSET_DAYS,
+	skipOlderThanDays: DEFAULT_SKIP_OLDER_THAN_DAYS,
 	lastSyncAt: null,
 	lastSyncError: null,
 }
@@ -120,7 +124,7 @@ export function DashboardPage(props: {
 					{props.googleConnected ? (
 						<>
 							<p>
-								Connected. Every Canvas event in your enabled courses is
+								Connected. Recent Canvas events in your enabled courses are
 								mirrored into a single Google task list. Tasks follow the
 								feed: they are created, moved and removed as events change,
 								and any task you delete in Google Tasks is left deleted.
@@ -170,6 +174,24 @@ export function DashboardPage(props: {
 												))}
 											</select>
 										</label>
+										<label style="margin-top:0.5em">
+											Skip tasks older than
+											<select name="skipOlderThanDays" class="pure-input-1">
+												{skipOlderThanOptions().map((days) => (
+													<option
+														value={String(days)}
+														selected={days === googleTasks.skipOlderThanDays}
+													>
+														{days} {days === 1 ? 'day' : 'days'}
+													</option>
+												))}
+											</select>
+										</label>
+										<p class="form-hint">
+											Tasks whose Canvas deadline was more than this many
+											days ago are not added. Sync keeps tasks already in the
+											list; Refresh removes them.
+										</p>
 										<p class="form-hint">
 											Each task keeps its full deadline (time included) in its
 											notes; its due date is set this many days earlier so it
@@ -220,7 +242,7 @@ export function DashboardPage(props: {
 								</button>
 							</form>
 							<p class="form-hint">
-								It's not typically necessary to run sync or refresh manually. Sync is ran automatically after every request to fetch the calendar. If you complete or delete a task, it stays that way. But, refresh starts fresh, recreating all tasks from the calendar feed. Only run this if you run into issues.
+								It's not typically necessary to run sync or refresh manually. Sync is ran automatically after every request to fetch the calendar. If you complete or delete a task, it stays that way. But, refresh starts fresh, recreating all tasks from the calendar feed. Tasks older than the skip threshold are not added; Sync keeps ones already in the list, while refresh removes them. Only run this if you run into issues.
 							</p>
 							<form
 								method="post"
@@ -249,10 +271,10 @@ export function DashboardPage(props: {
 					) : (
 						<>
 							<p>
-								Connect a Google account to mirror every Canvas event in your
-								enabled courses into Google Tasks. Each task keeps its full
-								deadline in its notes and is due ahead of time, and tasks are
-								created, moved and removed to match your Canvas feed.
+								Connect a Google account to mirror recent Canvas events in
+								your enabled courses into Google Tasks. Each task keeps its
+								full deadline in its notes and is due ahead of time, and tasks
+								are created, moved and removed to match your Canvas feed.
 							</p>
 							<form
 								method="post"

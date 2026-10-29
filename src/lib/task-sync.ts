@@ -66,6 +66,11 @@ function lastDueInstant(event: ParsedEvent): Date {
 	return new Date(event.end.getTime() - 1)
 }
 
+/** True when the event's deadline is more than `days` in the past. */
+function isOlderThan(event: ParsedEvent, days: number, now: Date): boolean {
+	return now.getTime() - lastDueInstant(event).getTime() > days * MS_PER_DAY
+}
+
 /**
  * Google Tasks stores only the date half of `due` and discards the time, so the
  * deadline is resolved to a Pacific calendar day first. The task is then due the
@@ -264,17 +269,21 @@ type SyncCounts = {
 }
 
 /**
- * Mirrors the feed into the task list. Every event in an enabled course becomes
- * a task. The marker in each task's notes is the join key, so a task that
- * already exists is compared against the assignment it maps to and moved or
- * rewritten when the assignment changed, and removed when the assignment left
- * the feed. A task the user deleted is remembered and left deleted, unless
- * `recreate` is set (the Refresh action), which puts every task back.
+ * Mirrors the feed into the task list. Every recent event in an enabled course
+ * becomes a task. The marker in each task's notes is the join key, so a task
+ * that already exists is compared against the assignment it maps to and moved
+ * or rewritten when the assignment changed, and removed when the assignment
+ * left the feed. A task the user deleted is remembered and left deleted, unless
+ * `recreate` is set (the Refresh action), which puts recent tasks back.
+ *
+ * Events whose deadline is older than `skipOlderThanDays` are not added. A
+ * normal sync still keeps an existing task of any age, while Refresh deletes
+ * old tasks instead of rebuilding them.
  */
 async function runSync(
 	settings: SettingsRow,
 	userId: string,
-	options: { recreate?: boolean },
+	options: { recreate?: boolean; now: Date },
 ): Promise<SyncCounts> {
 	const accessToken = await googleAccessToken(userId)
 	const sourceUrl = await sourceUrlFor(userId)
@@ -342,6 +351,18 @@ async function runSync(
 	const counts: SyncCounts = { added: 0, updated: 0, removed: 0, skipped: 0 }
 
 	for (const [uid, event] of assignments) {
+		const existing = liveByUid.get(uid)
+		const old = isOlderThan(event, settings.skipOlderThanDays, options.now)
+		if (options.recreate && old) {
+			if (existing?.id) {
+				await deleteTask(accessToken, list.id, existing.id)
+				liveByUid.delete(uid)
+				counts.removed += 1
+			} else {
+				counts.skipped += 1
+			}
+			continue
+		}
 		if (dismissed.has(uid) && !liveUids.has(uid)) {
 			counts.skipped += 1
 			continue
@@ -351,8 +372,11 @@ async function runSync(
 			due: taskDueDate(event, settings.dueOffsetDays),
 			notes: taskNotes(event),
 		}
-		const existing = liveByUid.get(uid)
 		if (!existing?.id) {
+			if (old) {
+				counts.skipped += 1
+				continue
+			}
 			await insertTask(accessToken, list.id, desired)
 			counts.added += 1
 			continue
@@ -389,7 +413,7 @@ async function runSync(
 
 export async function syncGoogleTasks(
 	userId: string,
-	options: { respectInterval?: boolean; recreate?: boolean } = {},
+	options: { respectInterval?: boolean; recreate?: boolean; now?: Date } = {},
 ): Promise<SyncResult> {
 	if (!googleConfigured) {
 		return { ok: false, message: 'Google Tasks sync is not configured.' }
@@ -398,6 +422,7 @@ export async function syncGoogleTasks(
 		return { ok: false, message: 'A sync is already running.' }
 	}
 
+	const now = options.now ?? new Date()
 	const settings = await loadSettings(userId)
 	if (!settings?.enabled) {
 		return { ok: false, message: 'Google Tasks sync is off.' }
@@ -405,7 +430,7 @@ export async function syncGoogleTasks(
 	if (
 		options.respectInterval &&
 		settings.lastSyncAt &&
-		Date.now() - settings.lastSyncAt.getTime() < MIN_SYNC_INTERVAL_MS
+		now.getTime() - settings.lastSyncAt.getTime() < MIN_SYNC_INTERVAL_MS
 	) {
 		return { ok: false, message: 'This account synced recently.' }
 	}
@@ -414,10 +439,11 @@ export async function syncGoogleTasks(
 	try {
 		const counts = await runSync(settings, userId, {
 			recreate: options.recreate,
+			now,
 		})
 		await db
 			.update(googleTasksSettings)
-			.set({ lastSyncAt: new Date(), lastSyncError: null })
+			.set({ lastSyncAt: now, lastSyncError: null })
 			.where(eq(googleTasksSettings.userId, userId))
 		return { ok: true, ...counts }
 	} catch (error) {
@@ -435,11 +461,15 @@ export async function syncGoogleTasks(
 }
 
 /**
- * Rebuilds every task from the feed, including ones the user deleted. It clears
- * the remembered deletions first, so the next sync treats them as new.
+ * Rebuilds every recent task from the feed, including ones the user deleted.
+ * It clears the remembered deletions first, so the next sync treats them as
+ * new, and removes synced tasks that are older than the skip threshold.
  */
-export function refreshGoogleTasks(userId: string): Promise<SyncResult> {
-	return syncGoogleTasks(userId, { recreate: true })
+export function refreshGoogleTasks(
+	userId: string,
+	options: { now?: Date } = {},
+): Promise<SyncResult> {
+	return syncGoogleTasks(userId, { recreate: true, now: options.now })
 }
 
 /**

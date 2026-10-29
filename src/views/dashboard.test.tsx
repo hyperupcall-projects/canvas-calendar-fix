@@ -223,6 +223,7 @@ describe('DashboardPage', () => {
 					enabled: true,
 					listName: 'Homework',
 					dueOffsetDays: 3,
+					skipOlderThanDays: 2,
 					lastSyncAt: new Date('2026-09-07T19:30:00.000Z'),
 					lastSyncError: null,
 				}}
@@ -239,6 +240,8 @@ describe('DashboardPage', () => {
 		// The configured offset is the selected one, out of the 1-14 range.
 		assert.match(html, /value="3" selected/)
 		assert.doesNotMatch(html, /value="4" selected/)
+		assert.match(html, /name="skipOlderThanDays"/)
+		assert.match(html, /<option value="2" selected="">2 days<\/option>/)
 		assert.match(html, /Last synced: Sep 7, 2026/)
 		assert.match(html, /action="\/dashboard\/google\/sync\?beta=true"/)
 		assert.match(html, /action="\/dashboard\/google\/refresh\?beta=true"/)
@@ -265,6 +268,7 @@ describe('DashboardPage', () => {
 					enabled: false,
 					listName: null,
 					dueOffsetDays: 7,
+					skipOlderThanDays: 1,
 					lastSyncAt: null,
 					lastSyncError: 'Google Tasks returned HTTP 403.',
 				}}

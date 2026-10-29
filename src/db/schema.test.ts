@@ -2,15 +2,20 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
 	clampDueOffsetDays,
+	clampSkipOlderThanDays,
 	DEFAULT_DUE_OFFSET_DAYS,
+	DEFAULT_SKIP_OLDER_THAN_DAYS,
 	defaultOutputName,
 	DEFAULT_TASK_LIST_NAME,
 	dueOffsetOptions,
 	MAX_DUE_OFFSET_DAYS,
 	MAX_OUTPUT_CALENDARS,
+	MAX_SKIP_OLDER_THAN_DAYS,
 	MIN_DUE_OFFSET_DAYS,
+	MIN_SKIP_OLDER_THAN_DAYS,
 	nextOutputPosition,
 	resolveTaskListName,
+	skipOlderThanOptions,
 } from './schema.ts'
 
 describe('nextOutputPosition', () => {
@@ -55,6 +60,40 @@ describe('dueOffsetOptions', () => {
 		assert.equal(options.length, 14)
 		assert.equal(options[0], MIN_DUE_OFFSET_DAYS)
 		assert.equal(options.at(-1), MAX_DUE_OFFSET_DAYS)
+	})
+})
+
+describe('clampSkipOlderThanDays', () => {
+	it('defaults to one day', () => {
+		assert.equal(DEFAULT_SKIP_OLDER_THAN_DAYS, 1)
+	})
+
+	it('keeps whole values inside the 1-30 range', () => {
+		assert.equal(clampSkipOlderThanDays(1), MIN_SKIP_OLDER_THAN_DAYS)
+		assert.equal(clampSkipOlderThanDays(5), 5)
+		assert.equal(clampSkipOlderThanDays(30), MAX_SKIP_OLDER_THAN_DAYS)
+	})
+
+	it('clamps out-of-range values and rounds down', () => {
+		assert.equal(clampSkipOlderThanDays(0), MIN_SKIP_OLDER_THAN_DAYS)
+		assert.equal(clampSkipOlderThanDays(99), MAX_SKIP_OLDER_THAN_DAYS)
+		assert.equal(clampSkipOlderThanDays(2.9), 2)
+	})
+
+	it('falls back to the default for a missing or non-numeric value', () => {
+		assert.equal(
+			clampSkipOlderThanDays(Number.NaN),
+			DEFAULT_SKIP_OLDER_THAN_DAYS,
+		)
+	})
+})
+
+describe('skipOlderThanOptions', () => {
+	it('offers every whole day from 1 to 30', () => {
+		const options = skipOlderThanOptions()
+		assert.equal(options.length, 30)
+		assert.equal(options[0], MIN_SKIP_OLDER_THAN_DAYS)
+		assert.equal(options.at(-1), MAX_SKIP_OLDER_THAN_DAYS)
 	})
 })
 

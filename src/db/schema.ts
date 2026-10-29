@@ -15,6 +15,13 @@ export const DEFAULT_DUE_OFFSET_DAYS = 7
 export const MIN_DUE_OFFSET_DAYS = 1
 export const MAX_DUE_OFFSET_DAYS = 14
 
+// A normal sync will not add a task whose Canvas deadline is older than this
+// many days. Tasks already in the list are kept regardless of age, while
+// Refresh removes old tasks instead of rebuilding them.
+export const DEFAULT_SKIP_OLDER_THAN_DAYS = 1
+export const MIN_SKIP_OLDER_THAN_DAYS = 1
+export const MAX_SKIP_OLDER_THAN_DAYS = 30
+
 export const DEFAULT_TASK_LIST_NAME = 'Canvas Assignments'
 
 export const calendars = sqliteTable('calendars', {
@@ -94,6 +101,9 @@ export const googleTasksSettings = sqliteTable('google_tasks_settings', {
 	dueOffsetDays: integer('due_offset_days')
 		.notNull()
 		.default(DEFAULT_DUE_OFFSET_DAYS),
+	skipOlderThanDays: integer('skip_older_than_days')
+		.notNull()
+		.default(DEFAULT_SKIP_OLDER_THAN_DAYS),
 	// JSON array of Canvas uids whose tasks the user deleted in Google, so they
 	// are not put back. Cleared by the Refresh action.
 	dismissed: text('dismissed').notNull().default('[]'),
@@ -131,6 +141,29 @@ export function clampDueOffsetDays(value: number): number {
 export function dueOffsetOptions(): number[] {
 	const options: number[] = []
 	for (let days = MIN_DUE_OFFSET_DAYS; days <= MAX_DUE_OFFSET_DAYS; days += 1) {
+		options.push(days)
+	}
+	return options
+}
+
+/** Coerces a possibly-invalid form value into the allowed 1-30 day range. */
+export function clampSkipOlderThanDays(value: number): number {
+	if (!Number.isFinite(value)) {
+		return DEFAULT_SKIP_OLDER_THAN_DAYS
+	}
+	return Math.min(
+		MAX_SKIP_OLDER_THAN_DAYS,
+		Math.max(MIN_SKIP_OLDER_THAN_DAYS, Math.trunc(value)),
+	)
+}
+
+export function skipOlderThanOptions(): number[] {
+	const options: number[] = []
+	for (
+		let days = MIN_SKIP_OLDER_THAN_DAYS;
+		days <= MAX_SKIP_OLDER_THAN_DAYS;
+		days += 1
+	) {
 		options.push(days)
 	}
 	return options

@@ -8,9 +8,11 @@ import { user } from './db/auth-schema.ts'
 import {
 	calendars,
 	clampDueOffsetDays,
+	clampSkipOlderThanDays,
 	courses,
 	defaultOutputName,
 	DEFAULT_DUE_OFFSET_DAYS,
+	DEFAULT_SKIP_OLDER_THAN_DAYS,
 	googleTasksSettings,
 	MAX_OUTPUT_CALENDARS,
 	nextOutputPosition,
@@ -328,6 +330,8 @@ app.get('/dashboard', async (c) => {
 				enabled: settings?.enabled ?? false,
 				listName: settings?.listName ?? null,
 				dueOffsetDays: settings?.dueOffsetDays ?? DEFAULT_DUE_OFFSET_DAYS,
+				skipOlderThanDays:
+					settings?.skipOlderThanDays ?? DEFAULT_SKIP_OLDER_THAN_DAYS,
 				lastSyncAt: settings?.lastSyncAt ?? null,
 				lastSyncError: settings?.lastSyncError ?? null,
 			}}
@@ -463,6 +467,9 @@ app.post('/dashboard/google/settings', async (c) => {
 	const enabled = body.enabled != null
 	const listName = sanitizeTasksListName(String(body.listName ?? ''))
 	const dueOffsetDays = clampDueOffsetDays(Number(body.dueOffsetDays))
+	const skipOlderThanDays = clampSkipOlderThanDays(
+		Number(body.skipOlderThanDays),
+	)
 
 	const [existing] = await db
 		.select({
@@ -486,10 +493,11 @@ app.post('/dashboard/google/settings', async (c) => {
 			listName,
 			listId,
 			dueOffsetDays,
+			skipOlderThanDays,
 		})
 		.onConflictDoUpdate({
 			target: googleTasksSettings.userId,
-			set: { enabled, listName, listId, dueOffsetDays },
+			set: { enabled, listName, listId, dueOffsetDays, skipOlderThanDays },
 		})
 
 	return c.redirect(dashboardUrl(beta, { gtasks: '1' }))

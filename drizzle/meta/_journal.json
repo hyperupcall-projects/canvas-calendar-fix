@@ -43,6 +43,13 @@
 			"when": 1757600000000,
 			"tag": "0005_google_tasks_dismissed",
 			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "6",
+			"when": 1757700000000,
+			"tag": "0006_skip_older_than_days",
+			"breakpoints": true
 		}
 	]
 }
