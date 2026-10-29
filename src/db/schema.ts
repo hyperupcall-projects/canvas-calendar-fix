@@ -9,6 +9,14 @@ import { user } from './auth-schema.ts'
 
 export const MAX_OUTPUT_CALENDARS = 8
 
+// How many days before an assignment's deadline the Google Task is due, so it
+// surfaces on the calendar ahead of time.
+export const DEFAULT_DUE_OFFSET_DAYS = 7
+export const MIN_DUE_OFFSET_DAYS = 1
+export const MAX_DUE_OFFSET_DAYS = 14
+
+export const DEFAULT_TASK_LIST_NAME = 'Canvas Assignments'
+
 export const calendars = sqliteTable('calendars', {
 	id: text('id').primaryKey(),
 	userId: text('user_id')
@@ -45,13 +53,6 @@ export const outputCalendars = sqliteTable(
 		addCanvasLink: integer('add_canvas_link', { mode: 'boolean' })
 			.notNull()
 			.default(true),
-		tasksEnabled: integer('tasks_enabled', { mode: 'boolean' })
-			.notNull()
-			.default(false),
-		tasksListName: text('tasks_list_name'),
-		tasksListId: text('tasks_list_id'),
-		tasksLastSyncAt: integer('tasks_last_sync_at', { mode: 'timestamp' }),
-		tasksLastSyncError: text('tasks_last_sync_error'),
 		lastFeedAccessAt: integer('last_feed_access_at', { mode: 'timestamp' }),
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	},
@@ -78,15 +79,30 @@ export const outputCalendarCourses = sqliteTable(
 	],
 )
 
+/**
+ * One Google Tasks configuration per user. A single task list holds every
+ * synced assignment, with the course filter coming from the union of the
+ * courses the user has enabled across their output calendars.
+ */
+export const googleTasksSettings = sqliteTable('google_tasks_settings', {
+	userId: text('user_id')
+		.primaryKey()
+		.references(() => user.id, { onDelete: 'cascade' }),
+	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
+	listName: text('list_name'),
+	listId: text('list_id'),
+	dueOffsetDays: integer('due_offset_days')
+		.notNull()
+		.default(DEFAULT_DUE_OFFSET_DAYS),
+	// JSON array of Canvas uids whose tasks the user deleted in Google, so they
+	// are not put back. Cleared by the Refresh action.
+	dismissed: text('dismissed').notNull().default('[]'),
+	lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
+	lastSyncError: text('last_sync_error'),
+})
+
 export function defaultOutputName(position: number): string {
 	return `Calendar ${position}`
-}
-
-export function resolveTasksListName(output: {
-	name: string
-	tasksListName: string | null
-}): string {
-	return output.tasksListName ?? output.name
 }
 
 export function nextOutputPosition(
@@ -99,4 +115,29 @@ export function nextOutputPosition(
 		}
 	}
 	return null
+}
+
+/** Coerces a possibly-invalid form value into the allowed 1-14 day range. */
+export function clampDueOffsetDays(value: number): number {
+	if (!Number.isFinite(value)) {
+		return DEFAULT_DUE_OFFSET_DAYS
+	}
+	return Math.min(
+		MAX_DUE_OFFSET_DAYS,
+		Math.max(MIN_DUE_OFFSET_DAYS, Math.trunc(value)),
+	)
+}
+
+export function dueOffsetOptions(): number[] {
+	const options: number[] = []
+	for (let days = MIN_DUE_OFFSET_DAYS; days <= MAX_DUE_OFFSET_DAYS; days += 1) {
+		options.push(days)
+	}
+	return options
+}
+
+/** Falls back to the default list name so the Google list is never blank. */
+export function resolveTaskListName(listName: string | null): string {
+	const trimmed = listName?.trim() ?? ''
+	return trimmed.length > 0 ? trimmed : DEFAULT_TASK_LIST_NAME
 }

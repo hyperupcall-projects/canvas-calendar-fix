@@ -4,7 +4,7 @@ import { makeSignature } from 'better-auth/crypto'
 import { eq } from 'drizzle-orm'
 import { app } from './app.tsx'
 import { db } from './db/index.ts'
-import { account, session, user } from './db/auth-schema.ts'
+import { session, user } from './db/auth-schema.ts'
 import {
 	calendars,
 	courses,
@@ -392,15 +392,20 @@ describe('http routes', () => {
 		}
 	})
 
-	it('redirects anonymous Google connect attempts to sign-in', async () => {
-		const response = await app.request('/dashboard/google/connect', {
-			method: 'POST',
-		})
-		assert.equal(response.status, 302)
-		assert.equal(response.headers.get('location'), '/sign-in')
+	it('redirects anonymous Google attempts to sign-in', async () => {
+		for (const path of [
+			'/dashboard/google/connect',
+			'/dashboard/google/settings',
+			'/dashboard/google/sync',
+			'/dashboard/google/disconnect',
+		]) {
+			const response = await app.request(path, { method: 'POST' })
+			assert.equal(response.status, 302)
+			assert.equal(response.headers.get('location'), '/sign-in')
+		}
 	})
 
-	it('saves a task list name and keeps syncing off without Google', async () => {
+	it('hides Google Tasks and reports it unavailable without credentials', async () => {
 		assert.equal(
 			googleConfigured,
 			false,
@@ -409,15 +414,13 @@ describe('http routes', () => {
 
 		const now = new Date()
 		const userId = crypto.randomUUID()
-		const calendarId = crypto.randomUUID()
-		const outputId = crypto.randomUUID()
 		const sessionToken = crypto.randomUUID()
 
 		try {
 			await db.insert(user).values({
 				id: userId,
-				name: 'tasks-test',
-				email: `tasks-${userId}@csumb.edu`,
+				name: 'gtasks-test',
+				email: `gtasks-${userId}@csumb.edu`,
 				emailVerified: true,
 				createdAt: now,
 				updatedAt: now,
@@ -430,157 +433,25 @@ describe('http routes', () => {
 				updatedAt: now,
 				userId,
 			})
-			await db.insert(calendars).values({
-				id: calendarId,
-				userId,
-				sourceUrl:
-					'https://csumb.instructure.com/feeds/calendars/user_tasks.ics',
-				createdAt: now,
-				updatedAt: now,
-			})
-			await db.insert(outputCalendars).values({
-				id: outputId,
-				calendarId,
-				name: 'Class',
-				publicToken: crypto.randomUUID(),
-				position: 1,
-				createdAt: now,
-			})
 
 			const signed = `${sessionToken}.${await makeSignature(sessionToken, env.BETTER_AUTH_SECRET)}`
 			const cookie = `better-auth.session_token=${encodeURIComponent(signed)}`
 
-			const saved = await app.request(`/dashboard/outputs/${outputId}`, {
-				method: 'POST',
-				headers: {
-					cookie,
-					'content-type': 'application/x-www-form-urlencoded',
-				},
-				body: new URLSearchParams([
-					['name', 'Class'],
-					['tasksListName', 'Homework'],
-					['tasksEnabled', 'on'],
-				]),
-			})
-			assert.equal(saved.status, 302)
-
-			const [reloaded] = await db
-				.select()
-				.from(outputCalendars)
-				.where(eq(outputCalendars.id, outputId))
-			// The name is kept for later, but syncing cannot be switched on while
-			// the Google credentials are missing.
-			assert.equal(reloaded?.tasksListName, 'Homework')
-			assert.equal(reloaded?.tasksEnabled, false)
-
-			const connect = await app.request('/dashboard/google/connect', {
-				method: 'POST',
+			const page = await app.request('/dashboard?beta=true', {
 				headers: { cookie },
 			})
-			assert.equal(connect.status, 302)
-			assert.match(
-				connect.headers.get('location') ?? '',
-				/error=.*not%20configured/,
-			)
-
-			const page = await app.request('/dashboard', { headers: { cookie } })
 			assert.equal(page.status, 200)
 			assert.doesNotMatch(await page.text(), /Google Tasks/)
-		} finally {
-			await db.delete(user).where(eq(user.id, userId))
-		}
-	})
 
-	it('disconnecting Google clears sync state but keeps the list name', async () => {
-		const now = new Date()
-		const userId = crypto.randomUUID()
-		const calendarId = crypto.randomUUID()
-		const outputId = crypto.randomUUID()
-		const sessionToken = crypto.randomUUID()
-
-		try {
-			await db.insert(user).values({
-				id: userId,
-				name: 'unlink-test',
-				email: `unlink-${userId}@csumb.edu`,
-				emailVerified: true,
-				createdAt: now,
-				updatedAt: now,
-			})
-			await db.insert(session).values({
-				id: crypto.randomUUID(),
-				expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
-				token: sessionToken,
-				// Deliberately stale: magic-link users rarely sign in, and better-auth
-				// would otherwise refuse to unlink without a fresh session.
-				createdAt: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
-				updatedAt: now,
-				userId,
-			})
-			// Google is the user's only account row, which better-auth refuses to
-			// unlink unless `allowUnlinkingAll` is set.
-			await db.insert(account).values({
-				id: crypto.randomUUID(),
-				accountId: 'google-subject',
-				providerId: 'google',
-				userId,
-				accessToken: 'token',
-				refreshToken: 'refresh',
-				createdAt: now,
-				updatedAt: now,
-			})
-			await db.insert(calendars).values({
-				id: calendarId,
-				userId,
-				sourceUrl:
-					'https://csumb.instructure.com/feeds/calendars/user_unlink.ics',
-				createdAt: now,
-				updatedAt: now,
-			})
-			await db.insert(outputCalendars).values({
-				id: outputId,
-				calendarId,
-				name: 'Class',
-				publicToken: crypto.randomUUID(),
-				position: 1,
-				createdAt: now,
-				tasksEnabled: true,
-				tasksListName: 'Homework',
-				tasksListId: 'google-list-1',
-				tasksLastSyncAt: now,
-				tasksLastSyncError: 'stale failure',
-			})
-
-			const signed = `${sessionToken}.${await makeSignature(sessionToken, env.BETTER_AUTH_SECRET)}`
-			const cookie = `better-auth.session_token=${encodeURIComponent(signed)}`
 			const response = await app.request(
-				'/dashboard/google/disconnect?beta=true',
-				{
-					method: 'POST',
-					headers: { cookie },
-				},
+				'/dashboard/google/settings?beta=true',
+				{ method: 'POST', headers: { cookie } },
 			)
 			assert.equal(response.status, 302)
-			assert.equal(
-				response.headers.get('location'),
-				'/dashboard?disconnected=1&beta=true',
+			assert.match(
+				response.headers.get('location') ?? '',
+				/error=.*not%20available/,
 			)
-
-			assert.equal(
-				(await db.select().from(account).where(eq(account.userId, userId)))
-					.length,
-				0,
-			)
-			const [reloaded] = await db
-				.select()
-				.from(outputCalendars)
-				.where(eq(outputCalendars.id, outputId))
-			assert.equal(reloaded?.tasksEnabled, false)
-			assert.equal(reloaded?.tasksListId, null)
-			assert.equal(reloaded?.tasksLastSyncAt, null)
-			assert.equal(reloaded?.tasksLastSyncError, null)
-			// Kept so reconnecting restores the user's naming.
-			assert.equal(reloaded?.tasksListName, 'Homework')
 		} finally {
 			await db.delete(user).where(eq(user.id, userId))
 		}

@@ -5,41 +5,44 @@ import { account } from '../db/auth-schema.ts'
 import {
 	calendars,
 	courses,
+	googleTasksSettings,
 	outputCalendarCourses,
-	outputCalendars,
-	resolveTasksListName,
+	resolveTaskListName,
 } from '../db/schema.ts'
 import { googleConfigured } from '../env.ts'
-import { ensureTaskList, insertTask, listTasks } from './google-tasks.ts'
+import {
+	deleteTask,
+	ensureTaskList,
+	insertTask,
+	listTaskLists,
+	listTasks,
+	patchTask,
+	type GoogleTask,
+	type GoogleTaskList,
+} from './google-tasks.ts'
 import { fetchCalendarSource, parseCalendar, type ParsedEvent } from './ics.ts'
 
 export const TASK_TIMEZONE = 'America/Los_Angeles'
 
-const SHORT_EVENT_MAX_MINUTES = 20
-const LATE_NIGHT_START_HOUR = 23
-const MS_PER_MINUTE = 60 * 1000
+const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 /**
  * Feed fetches drive syncing, and a calendar app may poll every few minutes,
- * so automatic runs are spaced out. The manual button ignores this.
+ * so automatic runs are spaced out. The manual Sync now / Refresh ignore this.
  */
 const MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000
 
 const localFormatter = new Intl.DateTimeFormat('en-US', {
 	timeZone: TASK_TIMEZONE,
-	hourCycle: 'h23',
 	year: 'numeric',
 	month: '2-digit',
 	day: '2-digit',
-	hour: '2-digit',
-	minute: '2-digit',
 })
 
 function localParts(date: Date): {
 	year: string
 	month: string
 	day: string
-	hour: number
 } {
 	const parts = localFormatter.formatToParts(date)
 	const value = (type: Intl.DateTimeFormatPartTypes): string =>
@@ -48,15 +51,13 @@ function localParts(date: Date): {
 		year: value('year'),
 		month: value('month'),
 		day: value('day'),
-		hour: Number(value('hour')),
 	}
 }
 
 /**
- * The last instant the work is still due. Canvas emits an assignment as a
- * zero-length event, which `pinTimedEnd` stretches by a minute, so an 11:59 PM
- * deadline ends at 12:00 AM the next day. Stepping back keeps it on its own
- * calendar day.
+ * The last instant the work is still due. Canvas emits a point deadline (an
+ * assignment) or a span (a class meeting); in both cases this is the instant the
+ * event stops covering, which for a Canvas deadline is 11:59 PM Pacific.
  */
 function lastDueInstant(event: ParsedEvent): Date {
 	if (event.end.getTime() <= event.start.getTime()) {
@@ -66,32 +67,48 @@ function lastDueInstant(event: ParsedEvent): Date {
 }
 
 /**
- * Canvas does not mark which events are assignments, so they are recognized by
- * their timing: a deadline sits just before midnight, and anything Canvas emits
- * as a due instant is far shorter than a real class meeting.
+ * Google Tasks stores only the date half of `due` and discards the time, so the
+ * deadline is resolved to a Pacific calendar day first. The task is then due the
+ * configured number of days before that deadline, so it surfaces on the calendar
+ * ahead of the assignment rather than on the day it is due.
  */
-export function isAssignmentEvent(event: ParsedEvent): boolean {
-	if (event.allDay) {
-		return false
-	}
-	if (localParts(event.start).hour >= LATE_NIGHT_START_HOUR) {
-		return true
-	}
-	const minutes = (event.end.getTime() - event.start.getTime()) / MS_PER_MINUTE
-	return minutes < SHORT_EVENT_MAX_MINUTES
+export function taskDueDate(event: ParsedEvent, offsetDays: number): string {
+	const { year, month, day } = localParts(lastDueInstant(event))
+	const deadlineDay = Date.UTC(Number(year), Number(month) - 1, Number(day))
+	const due = new Date(deadlineDay - offsetDays * MS_PER_DAY)
+	const dueYear = due.getUTCFullYear()
+	const dueMonth = String(due.getUTCMonth() + 1).padStart(2, '0')
+	const dueDay = String(due.getUTCDate()).padStart(2, '0')
+	return `${dueYear}-${dueMonth}-${dueDay}T00:00:00.000Z`
 }
 
-/**
- * Google Tasks stores only the date half of `due` and discards the time, so the
- * instant is resolved to a Pacific calendar day first. Sending the raw UTC
- * instant would push a late-evening deadline onto the following day.
- */
-export function taskDueDate(event: ParsedEvent): string {
-	const { year, month, day } = localParts(lastDueInstant(event))
-	return `${year}-${month}-${day}T00:00:00.000Z`
+/** The full deadline, time included, for the task notes. */
+export function taskDeadline(event: ParsedEvent): string {
+	const due = lastDueInstant(event)
+	if (event.allDay) {
+		return `${due.toLocaleString('en-US', {
+			timeZone: TASK_TIMEZONE,
+			dateStyle: 'medium',
+		})} (all day)`
+	}
+	return due.toLocaleString('en-US', {
+		timeZone: TASK_TIMEZONE,
+		dateStyle: 'medium',
+		timeStyle: 'short',
+	})
 }
 
 const UID_MARKER = /\[canvas:([^\]\s]+)\]/
+
+/**
+ * Google rejects a task whose title or notes exceed these lengths with a 400,
+ * and a Canvas assignment description can easily run past the notes limit now
+ * that every event is copied, so the fields are clamped. The tracking marker is
+ * always kept, since without it the task could never be found again.
+ */
+export const MAX_TITLE_LENGTH = 1024
+export const MAX_NOTES_LENGTH = 8192
+export const DEFAULT_TASK_TITLE = 'Canvas event'
 
 /** The trailing marker that ties a task back to its Canvas event. */
 function taskMarker(uid: string): string {
@@ -103,35 +120,39 @@ export function canvasUidFromNotes(notes: string | undefined): string | null {
 	return notes?.match(UID_MARKER)?.[1] ?? null
 }
 
+/** The task title, clamped to Google's limit and never blank. */
+export function taskTitle(event: ParsedEvent): string {
+	const title = event.summary.trim()
+	return title.length > 0
+		? title.slice(0, MAX_TITLE_LENGTH)
+		: DEFAULT_TASK_TITLE
+}
+
 /**
- * The due time Google drops, kept where the user can still read it, plus the
- * marker that stands in for a local mapping table. The marker goes last so it
- * stays out of the way of anything the user writes.
+ * The full deadline Google drops, kept where the user can still read it, plus
+ * the marker that lets a later run find, move or delete this task. The marker
+ * goes last so it stays out of the way of anything the user writes, and the
+ * description is trimmed so the total stays within Google's notes limit.
  */
 export function taskNotes(event: ParsedEvent): string {
-	const due = lastDueInstant(event).toLocaleString('en-US', {
-		timeZone: TASK_TIMEZONE,
-		dateStyle: 'medium',
-		timeStyle: 'short',
-	})
-	const lines = [`Due ${due}`]
+	const marker = `\n\n${taskMarker(event.uid)}`
+	const header = [`Deadline: ${taskDeadline(event)}`]
 	if (event.url) {
-		lines.push(event.url)
+		header.push(event.url)
 	}
-	if (event.description) {
-		lines.push('', event.description)
-	}
-	lines.push('', taskMarker(event.uid))
-	return lines.join('\n')
+	const head = header.join('\n')
+	const budget = MAX_NOTES_LENGTH - head.length - marker.length - 2
+	const description = event.description ?? ''
+	const body = budget > 0 ? description.slice(0, budget) : ''
+	return body.length > 0 ? `${head}\n\n${body}${marker}` : `${head}${marker}`
 }
 
 export type SyncResult =
-	| { ok: true; added: number; skipped: number }
+	| { ok: true; added: number; updated: number; removed: number; skipped: number }
 	| { ok: false; message: string }
 
 // Every feed fetch can start a run, so overlapping runs are likely. A second
-// run would insert the same tasks again before the first one shows up in
-// Google's task list.
+// run would race the first over the same list, so they are serialized per user.
 const inFlight = new Set<string>()
 
 export async function googleAccountFor(
@@ -161,53 +182,101 @@ async function googleAccessToken(userId: string): Promise<string> {
 	return token.accessToken
 }
 
-async function loadSyncTarget(outputCalendarId: string) {
+/** The account's task lists, for the dashboard list picker. */
+export async function listGoogleTaskLists(
+	userId: string,
+): Promise<GoogleTaskList[]> {
+	const accessToken = await googleAccessToken(userId)
+	return listTaskLists(accessToken)
+}
+
+async function loadSettings(userId: string) {
 	const [row] = await db
-		.select({
-			id: outputCalendars.id,
-			name: outputCalendars.name,
-			tasksEnabled: outputCalendars.tasksEnabled,
-			tasksListName: outputCalendars.tasksListName,
-			tasksListId: outputCalendars.tasksListId,
-			tasksLastSyncAt: outputCalendars.tasksLastSyncAt,
-			userId: calendars.userId,
-			sourceUrl: calendars.sourceUrl,
-		})
-		.from(outputCalendars)
-		.innerJoin(calendars, eq(calendars.id, outputCalendars.calendarId))
-		.where(eq(outputCalendars.id, outputCalendarId))
+		.select()
+		.from(googleTasksSettings)
+		.where(eq(googleTasksSettings.userId, userId))
 		.limit(1)
 	return row ?? null
 }
 
-async function enabledCourseCodes(
-	outputCalendarId: string,
-): Promise<Set<string>> {
+/**
+ * The courses to mirror: every course the user enabled in any output calendar.
+ * The app exists to drop courses (for example, ones being TA'd), and that filter
+ * should carry over to tasks too.
+ */
+async function enabledCourseCodes(userId: string): Promise<Set<string>> {
 	const rows = await db
 		.select({ code: courses.code })
 		.from(outputCalendarCourses)
 		.innerJoin(courses, eq(courses.id, outputCalendarCourses.courseId))
-		.where(eq(outputCalendarCourses.outputCalendarId, outputCalendarId))
+		.innerJoin(calendars, eq(calendars.id, courses.calendarId))
+		.where(eq(calendars.userId, userId))
 	return new Set(rows.map((row) => row.code))
 }
 
+async function sourceUrlFor(userId: string): Promise<string | null> {
+	const [row] = await db
+		.select({ sourceUrl: calendars.sourceUrl })
+		.from(calendars)
+		.where(eq(calendars.userId, userId))
+		.limit(1)
+	return row?.sourceUrl ?? null
+}
+
+/** Google may echo the due date with a time; only the day is meaningful. */
+function sameDue(remote: string | undefined, desired: string): boolean {
+	return (remote ?? '').slice(0, 10) === desired.slice(0, 10)
+}
+
+function parseDismissed(value: string | null): Set<string> {
+	if (!value) {
+		return new Set()
+	}
+	try {
+		const parsed: unknown = JSON.parse(value)
+		return Array.isArray(parsed)
+			? new Set(parsed.filter((item): item is string => typeof item === 'string'))
+			: new Set()
+	} catch {
+		return new Set()
+	}
+}
+
+function serializeDismissed(uids: ReadonlySet<string>): string {
+	return JSON.stringify([...uids])
+}
+
+type SettingsRow = NonNullable<Awaited<ReturnType<typeof loadSettings>>>
+
+type SyncCounts = {
+	added: number
+	updated: number
+	removed: number
+	skipped: number
+}
+
 /**
- * Tasks are written once and then left alone: a task that already exists is
- * never patched, so anything the user retitled, rescheduled, completed or
- * deleted in Google stays the way they left it. Nothing is ever deleted here
- * either. That makes the only comparison the one that matters, whether a task
- * for this event exists at all, which the embedded marker answers without any
- * local bookkeeping.
+ * Mirrors the feed into the task list. Every event in an enabled course becomes
+ * a task. The marker in each task's notes is the join key, so a task that
+ * already exists is compared against the assignment it maps to and moved or
+ * rewritten when the assignment changed, and removed when the assignment left
+ * the feed. A task the user deleted is remembered and left deleted, unless
+ * `recreate` is set (the Refresh action), which puts every task back.
  */
 async function runSync(
-	target: NonNullable<Awaited<ReturnType<typeof loadSyncTarget>>>,
-): Promise<{ added: number; skipped: number }> {
-	const accessToken = await googleAccessToken(target.userId)
-	const enabled = await enabledCourseCodes(target.id)
+	settings: SettingsRow,
+	userId: string,
+	options: { recreate?: boolean },
+): Promise<SyncCounts> {
+	const accessToken = await googleAccessToken(userId)
+	const sourceUrl = await sourceUrlFor(userId)
+	if (!sourceUrl) {
+		return { added: 0, updated: 0, removed: 0, skipped: 0 }
+	}
 
-	const ics = await fetchCalendarSource(target.sourceUrl)
+	const enabled = await enabledCourseCodes(userId)
 	const assignments = new Map<string, ParsedEvent>()
-	for (const event of parseCalendar(ics)) {
+	for (const event of parseCalendar(await fetchCalendarSource(sourceUrl))) {
 		if (!event.courseCode || !enabled.has(event.courseCode)) {
 			continue
 		}
@@ -216,107 +285,160 @@ async function runSync(
 		if (event.uid.length === 0) {
 			continue
 		}
-		if (isAssignmentEvent(event)) {
-			assignments.set(event.uid, event)
-		}
+		assignments.set(event.uid, event)
 	}
 
-	const list = await ensureTaskList(
-		accessToken,
-		target.tasksListId,
-		resolveTasksListName(target),
-	)
-	if (list.id !== target.tasksListId) {
+	const list = await ensureTaskList(accessToken, {
+		listId: settings.listId,
+		name: resolveTaskListName(settings.listName),
+	})
+	if (list.id !== settings.listId) {
 		await db
-			.update(outputCalendars)
-			.set({ tasksListId: list.id })
-			.where(eq(outputCalendars.id, target.id))
+			.update(googleTasksSettings)
+			.set({ listId: list.id })
+			.where(eq(googleTasksSettings.userId, userId))
 	}
 
-	// Completed and deleted tasks count as present. Skipping them would put a
-	// task the user already dealt with straight back on their list.
-	const seen = new Set<string>()
+	const liveByUid = new Map<string, GoogleTask>()
+	const deletedUids = new Set<string>()
 	if (!list.created) {
 		for (const task of await listTasks(accessToken, list.id)) {
+			if (!task.id) {
+				continue
+			}
 			const uid = canvasUidFromNotes(task.notes)
-			if (uid) {
-				seen.add(uid)
+			if (!uid) {
+				continue
+			}
+			if (task.deleted) {
+				deletedUids.add(uid)
+			} else {
+				liveByUid.set(uid, task)
+			}
+		}
+	}
+	const liveUids = new Set(liveByUid.keys())
+
+	// A task the user deleted is a deleted task whose assignment is still in the
+	// feed. Remember those so later runs do not put them back. Refresh starts
+	// from an empty set so everything is rebuilt.
+	const dismissed = options.recreate ? new Set<string>() : parseDismissed(settings.dismissed)
+	if (!options.recreate) {
+		for (const uid of deletedUids) {
+			if (assignments.has(uid) && !liveUids.has(uid)) {
+				dismissed.add(uid)
 			}
 		}
 	}
 
-	let added = 0
-	let skipped = 0
+	const counts: SyncCounts = { added: 0, updated: 0, removed: 0, skipped: 0 }
 
 	for (const [uid, event] of assignments) {
-		if (seen.has(uid)) {
-			skipped += 1
+		if (dismissed.has(uid) && !liveUids.has(uid)) {
+			counts.skipped += 1
 			continue
 		}
-		await insertTask(accessToken, list.id, {
-			title: event.summary,
-			due: taskDueDate(event),
+		const desired = {
+			title: taskTitle(event),
+			due: taskDueDate(event, settings.dueOffsetDays),
 			notes: taskNotes(event),
-		})
-		added += 1
+		}
+		const existing = liveByUid.get(uid)
+		if (!existing?.id) {
+			await insertTask(accessToken, list.id, desired)
+			counts.added += 1
+			continue
+		}
+		liveByUid.delete(uid)
+		const changed =
+			existing.title !== desired.title ||
+			!sameDue(existing.due, desired.due) ||
+			existing.notes !== desired.notes
+		if (changed) {
+			await patchTask(accessToken, list.id, existing.id, desired)
+			counts.updated += 1
+		} else {
+			counts.skipped += 1
+		}
 	}
 
-	return { added, skipped }
+	// Whatever live task is left maps to an assignment no longer in the feed.
+	for (const task of liveByUid.values()) {
+		if (!task.id) {
+			continue
+		}
+		await deleteTask(accessToken, list.id, task.id)
+		counts.removed += 1
+	}
+
+	await db
+		.update(googleTasksSettings)
+		.set({ dismissed: serializeDismissed(dismissed) })
+		.where(eq(googleTasksSettings.userId, userId))
+
+	return counts
 }
 
-export async function syncOutputCalendar(
-	outputCalendarId: string,
-	options: { respectInterval?: boolean } = {},
+export async function syncGoogleTasks(
+	userId: string,
+	options: { respectInterval?: boolean; recreate?: boolean } = {},
 ): Promise<SyncResult> {
 	if (!googleConfigured) {
 		return { ok: false, message: 'Google Tasks sync is not configured.' }
 	}
-	if (inFlight.has(outputCalendarId)) {
-		return { ok: false, message: 'A sync is already running for this calendar.' }
+	if (inFlight.has(userId)) {
+		return { ok: false, message: 'A sync is already running.' }
 	}
 
-	const target = await loadSyncTarget(outputCalendarId)
-	if (!target) {
-		return { ok: false, message: 'That calendar was not found.' }
-	}
-	if (!target.tasksEnabled) {
-		return { ok: false, message: 'Google Tasks sync is off for this calendar.' }
+	const settings = await loadSettings(userId)
+	if (!settings?.enabled) {
+		return { ok: false, message: 'Google Tasks sync is off.' }
 	}
 	if (
 		options.respectInterval &&
-		target.tasksLastSyncAt &&
-		Date.now() - target.tasksLastSyncAt.getTime() < MIN_SYNC_INTERVAL_MS
+		settings.lastSyncAt &&
+		Date.now() - settings.lastSyncAt.getTime() < MIN_SYNC_INTERVAL_MS
 	) {
-		return { ok: false, message: 'This calendar synced recently.' }
+		return { ok: false, message: 'This account synced recently.' }
 	}
 
-	inFlight.add(outputCalendarId)
+	inFlight.add(userId)
 	try {
-		const counts = await runSync(target)
+		const counts = await runSync(settings, userId, {
+			recreate: options.recreate,
+		})
 		await db
-			.update(outputCalendars)
-			.set({ tasksLastSyncAt: new Date(), tasksLastSyncError: null })
-			.where(eq(outputCalendars.id, outputCalendarId))
+			.update(googleTasksSettings)
+			.set({ lastSyncAt: new Date(), lastSyncError: null })
+			.where(eq(googleTasksSettings.userId, userId))
 		return { ok: true, ...counts }
 	} catch (error) {
 		const message =
 			error instanceof Error ? error.message : 'Could not sync Google Tasks.'
 		await db
-			.update(outputCalendars)
-			.set({ tasksLastSyncError: message })
-			.where(eq(outputCalendars.id, outputCalendarId))
+			.update(googleTasksSettings)
+			.set({ lastSyncError: message })
+			.where(eq(googleTasksSettings.userId, userId))
 		return { ok: false, message }
 	} finally {
-		inFlight.delete(outputCalendarId)
+		inFlight.delete(userId)
 	}
+}
+
+/**
+ * Rebuilds every task from the feed, including ones the user deleted. It clears
+ * the remembered deletions first, so the next sync treats them as new.
+ */
+export function refreshGoogleTasks(userId: string): Promise<SyncResult> {
+	return syncGoogleTasks(userId, { recreate: true })
 }
 
 /**
  * Starts a sync without making the caller wait for Google. Used by the feed
  * route so generating the calendar never blocks on task syncing.
  */
-export function syncOutputCalendarInBackground(outputCalendarId: string): void {
-	void syncOutputCalendar(outputCalendarId, { respectInterval: true }).catch(
+export function syncGoogleTasksInBackground(userId: string): void {
+	void syncGoogleTasks(userId, { respectInterval: true }).catch(
 		(error: unknown) => {
 			console.error('Background Google Tasks sync failed:', error)
 		},

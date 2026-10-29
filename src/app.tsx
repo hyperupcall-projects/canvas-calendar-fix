@@ -7,8 +7,11 @@ import { db } from './db/index.ts'
 import { user } from './db/auth-schema.ts'
 import {
 	calendars,
+	clampDueOffsetDays,
 	courses,
 	defaultOutputName,
+	DEFAULT_DUE_OFFSET_DAYS,
+	googleTasksSettings,
 	MAX_OUTPUT_CALENDARS,
 	nextOutputPosition,
 	outputCalendarCourses,
@@ -24,8 +27,10 @@ import {
 } from './lib/ics.ts'
 import {
 	googleAccountFor,
-	syncOutputCalendar,
-	syncOutputCalendarInBackground,
+	listGoogleTaskLists,
+	refreshGoogleTasks,
+	syncGoogleTasks,
+	syncGoogleTasksInBackground,
 } from './lib/task-sync.ts'
 import {
 	asStringList,
@@ -141,8 +146,7 @@ function sanitizeOutputName(raw: string, position: number): string {
 	return name.length > 0 ? name : defaultOutputName(position)
 }
 
-// Null means "follow the calendar name", so clearing the field is a valid way
-// back to the default rather than an error.
+// Null means "use the default list name", so clearing the field is valid.
 function sanitizeTasksListName(raw: string): string | null {
 	const name = raw.trim().slice(0, 80)
 	return name.length > 0 ? name : null
@@ -279,9 +283,26 @@ app.get('/dashboard', async (c) => {
 		codes.push(row.code)
 		enabledByOutput.set(row.outputCalendarId, codes)
 	}
-	const googleConnected = googleConfigured
-		? (await googleAccountFor(currentUser.id)) != null
-		: false
+
+	const googleConnected =
+		googleConfigured && (await googleAccountFor(currentUser.id)) != null
+	const [settings] = await db
+		.select()
+		.from(googleTasksSettings)
+		.where(eq(googleTasksSettings.userId, currentUser.id))
+		.limit(1)
+	// Best-effort: the list picker is a convenience and should never break the
+	// page, so a failed lookup just leaves the suggestions empty.
+	let taskListNames: string[] = []
+	if (googleConnected && beta) {
+		try {
+			taskListNames = (await listGoogleTaskLists(currentUser.id))
+				.map((list) => list.title)
+				.filter((title) => title.length > 0)
+		} catch {
+			taskListNames = []
+		}
+	}
 
 	return c.html(
 		<DashboardPage
@@ -295,27 +316,33 @@ app.get('/dashboard', async (c) => {
 				feedUrl: feedUrlFor(row.publicToken),
 				enabledCodes: enabledByOutput.get(row.id) ?? [],
 				addCanvasLink: row.addCanvasLink,
-				tasksEnabled: row.tasksEnabled,
-				tasksListName: row.tasksListName,
-				tasksLastSyncAt: row.tasksLastSyncAt,
-				tasksLastSyncError: row.tasksLastSyncError,
 			}))}
 			googleConfigured={googleConfigured}
 			googleConnected={googleConnected}
 			beta={beta}
+			googleTasks={{
+				enabled: settings?.enabled ?? false,
+				listName: settings?.listName ?? null,
+				dueOffsetDays: settings?.dueOffsetDays ?? DEFAULT_DUE_OFFSET_DAYS,
+				lastSyncAt: settings?.lastSyncAt ?? null,
+				lastSyncError: settings?.lastSyncError ?? null,
+			}}
+			taskListNames={taskListNames}
 			error={c.req.query('error')}
 			success={
 				c.req.query('saved')
 					? 'Saved.'
 					: c.req.query('reset')
 						? 'Calendar URL removed.'
-						: c.req.query('synced')
-							? `Synced to Google Tasks. ${c.req.query('synced')}`
-							: c.req.query('connected')
-								? 'Google account connected.'
-								: c.req.query('disconnected')
-									? 'Google account disconnected.'
-									: null
+						: c.req.query('gtasks')
+							? 'Google Tasks settings saved.'
+							: c.req.query('synced')
+								? `Synced to Google Tasks. ${c.req.query('synced')}`
+								: c.req.query('connected')
+									? 'Google account connected.'
+									: c.req.query('disconnected')
+										? 'Google account disconnected.'
+										: null
 			}
 		/>,
 	)
@@ -339,7 +366,10 @@ app.post('/dashboard/google/connect', async (c) => {
 	}
 
 	try {
-		const link = await auth.api.linkSocialAccount({
+		// better-auth keeps the OAuth state in a cookie, so the response's Set-Cookie
+		// headers have to reach the browser. Called without `asResponse` those
+		// headers are dropped and the callback then fails with `state_mismatch`.
+		const authResponse = await auth.api.linkSocialAccount({
 			body: {
 				provider: 'google',
 				callbackURL: dashboardUrl(beta, { connected: '1' }),
@@ -347,11 +377,18 @@ app.post('/dashboard/google/connect', async (c) => {
 				disableRedirect: true,
 			},
 			headers: c.req.raw.headers,
+			asResponse: true,
 		})
-		if (!link?.url) {
+		const link = (await authResponse.json()) as { url?: string }
+		if (!authResponse.ok || !link.url) {
 			throw new Error('Google did not return an authorization URL.')
 		}
-		return c.redirect(link.url)
+		const redirect = new Response(null, {
+			status: 302,
+			headers: { Location: link.url },
+		})
+		await copyAuthCookies(authResponse, redirect)
+		return redirect
 	} catch (error) {
 		const message =
 			error instanceof Error
@@ -393,22 +430,103 @@ app.post('/dashboard/google/disconnect', async (c) => {
 		return c.redirect(redirectWithError(message, beta))
 	}
 
-	// The task lists themselves stay in the user's Google account; they hold
-	// notes and completion state we should not destroy. Only our sync state goes.
-	const { outputRows } = await loadCalendarForUser(currentUser.id)
-	for (const output of outputRows) {
-		await db
-			.update(outputCalendars)
-			.set({
-				tasksEnabled: false,
-				tasksListId: null,
-				tasksLastSyncAt: null,
-				tasksLastSyncError: null,
-			})
-			.where(eq(outputCalendars.id, output.id))
-	}
+	// The task lists and tasks themselves stay in the user's Google account; they
+	// hold notes and completion state we should not destroy. Only our sync state
+	// goes, and the user's chosen list name is kept for reconnecting.
+	await db
+		.update(googleTasksSettings)
+		.set({ enabled: false, listId: null, lastSyncAt: null, lastSyncError: null })
+		.where(eq(googleTasksSettings.userId, currentUser.id))
 
 	return c.redirect(dashboardUrl(beta, { disconnected: '1' }))
+})
+
+app.post('/dashboard/google/settings', async (c) => {
+	const currentUser = c.get('user')
+	if (!currentUser) {
+		return c.redirect('/sign-in')
+	}
+	const beta = isBeta(c)
+	if (!googleConfigured || !beta) {
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not available.', beta),
+		)
+	}
+
+	const body = await c.req.parseBody()
+	const enabled = body.enabled != null
+	const listName = sanitizeTasksListName(String(body.listName ?? ''))
+	const dueOffsetDays = clampDueOffsetDays(Number(body.dueOffsetDays))
+
+	const [existing] = await db
+		.select({
+			listName: googleTasksSettings.listName,
+			listId: googleTasksSettings.listId,
+		})
+		.from(googleTasksSettings)
+		.where(eq(googleTasksSettings.userId, currentUser.id))
+		.limit(1)
+	// Renaming points at a different list, so the stored id is dropped and the
+	// name is resolved again on the next sync. The previous list, and its tasks,
+	// are left untouched.
+	const listId =
+		existing?.listName === listName ? (existing.listId ?? null) : null
+
+	await db
+		.insert(googleTasksSettings)
+		.values({
+			userId: currentUser.id,
+			enabled,
+			listName,
+			listId,
+			dueOffsetDays,
+		})
+		.onConflictDoUpdate({
+			target: googleTasksSettings.userId,
+			set: { enabled, listName, listId, dueOffsetDays },
+		})
+
+	return c.redirect(dashboardUrl(beta, { gtasks: '1' }))
+})
+
+app.post('/dashboard/google/sync', async (c) => {
+	const currentUser = c.get('user')
+	if (!currentUser) {
+		return c.redirect('/sign-in')
+	}
+	const beta = isBeta(c)
+	if (!beta) {
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not available.', beta),
+		)
+	}
+
+	const result = await syncGoogleTasks(currentUser.id)
+	if (!result.ok) {
+		return c.redirect(redirectWithError(result.message, beta))
+	}
+	const summary = `${result.added} added, ${result.updated} updated, ${result.removed} removed, ${result.skipped} unchanged.`
+	return c.redirect(dashboardUrl(beta, { synced: summary }))
+})
+
+app.post('/dashboard/google/refresh', async (c) => {
+	const currentUser = c.get('user')
+	if (!currentUser) {
+		return c.redirect('/sign-in')
+	}
+	const beta = isBeta(c)
+	if (!beta) {
+		return c.redirect(
+			redirectWithError('Google Tasks sync is not available.', beta),
+		)
+	}
+
+	const result = await refreshGoogleTasks(currentUser.id)
+	if (!result.ok) {
+		return c.redirect(redirectWithError(result.message, beta))
+	}
+	const summary = `${result.added} recreated, ${result.updated} updated, ${result.removed} removed, ${result.skipped} unchanged.`
+	return c.redirect(dashboardUrl(beta, { synced: summary }))
 })
 
 app.post('/dashboard/source', async (c) => {
@@ -575,33 +693,6 @@ app.post('/dashboard/outputs/:id/delete', async (c) => {
 	return c.redirect(dashboardUrl(beta, { saved: '1' }))
 })
 
-app.post('/dashboard/outputs/:id/sync', async (c) => {
-	const currentUser = c.get('user')
-	if (!currentUser) {
-		return c.redirect('/sign-in')
-	}
-	const beta = isBeta(c)
-	if (!beta) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not available.', beta),
-		)
-	}
-
-	const outputId = c.req.param('id')
-	const { outputRows } = await loadCalendarForUser(currentUser.id)
-	const output = outputRows.find((row) => row.id === outputId)
-	if (!output) {
-		return c.redirect(redirectWithError('That calendar was not found.', beta))
-	}
-
-	const result = await syncOutputCalendar(output.id)
-	if (!result.ok) {
-		return c.redirect(redirectWithError(result.message, beta))
-	}
-	const summary = `${result.added} added, ${result.skipped} already there.`
-	return c.redirect(dashboardUrl(beta, { synced: summary }))
-})
-
 app.post('/dashboard/outputs/:id', async (c) => {
 	const currentUser = c.get('user')
 	if (!currentUser) {
@@ -621,18 +712,13 @@ app.post('/dashboard/outputs/:id', async (c) => {
 	const body = await c.req.parseBody({ all: true })
 	const name = sanitizeOutputName(String(body.name ?? ''), output.position)
 	const addCanvasLink = body.canvasLink != null
-	// Saved even while the toggle is off, so a name typed before connecting
-	// Google survives.
-	const tasksListName = sanitizeTasksListName(String(body.tasksListName ?? ''))
-	const tasksEnabled =
-		googleConfigured && beta && body.tasksEnabled != null
 	const codes = asStringList(body.code)
 	const enabled = new Set(asStringList(body.enabled))
 	const coursesByCode = new Map(courseRows.map((row) => [row.code, row]))
 
 	await db
 		.update(outputCalendars)
-		.set({ name, addCanvasLink, tasksListName, tasksEnabled })
+		.set({ name, addCanvasLink })
 		.where(eq(outputCalendars.id, output.id))
 	await db
 		.delete(outputCalendarCourses)
@@ -697,10 +783,10 @@ app.get('/feed/:token', async (c) => {
 			output.addCanvasLink,
 		)
 		// A calendar app refreshing its feed is the signal that this calendar is
-		// in use, so it doubles as the sync trigger. Deliberately not awaited:
-		// the feed should never wait on Google.
-		if (output.tasksEnabled) {
-			syncOutputCalendarInBackground(output.id)
+		// in use, so it doubles as the sync trigger. Deliberately not awaited: the
+		// feed should never wait on Google, so the request finishes fast.
+		if (googleConfigured) {
+			syncGoogleTasksInBackground(calendar.userId)
 		}
 		return c.body(filtered, 200, {
 			'content-type': 'text/calendar; charset=utf-8',

@@ -9,10 +9,15 @@ process.env.GOOGLE_CLIENT_SECRET = 'test-client-secret'
 
 const { db } = await import('../db/index.ts')
 const { account, user } = await import('../db/auth-schema.ts')
-const { calendars, courses, outputCalendarCourses, outputCalendars } =
-	await import('../db/schema.ts')
+const {
+	calendars,
+	courses,
+	googleTasksSettings,
+	outputCalendarCourses,
+	outputCalendars,
+} = await import('../db/schema.ts')
 const { clearSourceCache } = await import('./ics.ts')
-const { syncOutputCalendar } = await import('./task-sync.ts')
+const { refreshGoogleTasks, syncGoogleTasks } = await import('./task-sync.ts')
 
 const SOURCE = 'https://csumb.instructure.com/feeds/calendars/user_sync_test.ics'
 
@@ -37,12 +42,14 @@ const homework3 = vevent([
 	'DTEND:20260825T065900Z',
 	'SUMMARY:Homework 3 [CST463-01_2264]',
 ])
-const homework4 = vevent([
-	'UID:event-assignment-2',
-	'DTSTART:20260901T065900Z',
-	'DTEND:20260901T065900Z',
-	'SUMMARY:Homework 4 [CST463-01_2264]',
+// The same assignment rescheduled a week later.
+const homework3Moved = vevent([
+	'UID:event-assignment-1',
+	'DTSTART:20260903T065900Z',
+	'DTEND:20260903T065900Z',
+	'SUMMARY:Homework 3 [CST463-01_2264]',
 ])
+// A regular class meeting, which still copies over.
 const lecture = vevent([
 	'UID:event-lecture',
 	'DTSTART:20260824T170000Z',
@@ -53,13 +60,13 @@ const lecture = vevent([
 const anonymous = vevent([
 	'DTSTART:20260902T065900Z',
 	'DTEND:20260902T065900Z',
-	'SUMMARY:Mystery assignment [CST463-01_2264]',
+	'SUMMARY:Mystery event [CST463-01_2264]',
 ])
 
 type FakeTask = {
 	id: string
 	title: string
-	due: string
+	due?: string
 	notes?: string
 	deleted?: boolean
 }
@@ -79,9 +86,23 @@ function installFakeGoogle(): void {
 			return new Response(feed, { status: 200 })
 		}
 
-		// Individual tasks are deliberately unhandled. Syncing writes a task
-		// once and never touches it again, so a PATCH or DELETE landing here
-		// should fail loudly as an unexpected request.
+		const taskItem = url.match(/\/lists\/([^/]+)\/tasks\/([^/?]+)$/)
+		if (taskItem) {
+			const list = lists.get(taskItem[1])
+			assert.ok(list)
+			const task = list.tasks.get(taskItem[2])
+			if (method === 'DELETE') {
+				if (task) {
+					// The API soft-deletes: the row stays, flagged deleted.
+					task.deleted = true
+				}
+				return new Response(null, { status: 204 })
+			}
+			assert.ok(task)
+			Object.assign(task, body)
+			return new Response(JSON.stringify(task), { status: 200 })
+		}
+
 		const taskCollection = url.match(/\/lists\/([^/]+)\/tasks(\?|$)/)
 		if (taskCollection) {
 			const list = lists.get(taskCollection[1])
@@ -120,6 +141,18 @@ function installFakeGoogle(): void {
 			})
 		}
 
+		if (method === 'GET' && /\/users\/@me\/lists/.test(url)) {
+			return new Response(
+				JSON.stringify({
+					items: [...lists.entries()].map(([id, list]) => ({
+						id,
+						title: list.title,
+					})),
+				}),
+				{ status: 200 },
+			)
+		}
+
 		throw new Error(`unexpected request: ${method} ${url}`)
 	}) as typeof globalThis.fetch
 }
@@ -142,11 +175,26 @@ function taskFor(uid: string): FakeTask | undefined {
 	return storedTasks().find((task) => task.notes?.includes(`[canvas:${uid}]`))
 }
 
+/** Simulates the user deleting a task in the Google Tasks UI. */
+function userDeletes(uid: string): void {
+	const task = taskFor(uid)
+	assert.ok(task, `no task for ${uid}`)
+	task.deleted = true
+}
+
 const now = new Date()
 const userId = crypto.randomUUID()
 const calendarId = crypto.randomUUID()
 const courseId = crypto.randomUUID()
 const outputId = crypto.randomUUID()
+
+async function settingsRow() {
+	const [row] = await db
+		.select()
+		.from(googleTasksSettings)
+		.where(eq(googleTasksSettings.userId, userId))
+	return row
+}
 
 before(async () => {
 	installFakeGoogle()
@@ -187,12 +235,16 @@ before(async () => {
 		publicToken: crypto.randomUUID(),
 		position: 1,
 		createdAt: now,
-		tasksEnabled: true,
-		tasksListName: 'Homework',
 	})
 	await db
 		.insert(outputCalendarCourses)
 		.values({ outputCalendarId: outputId, courseId })
+	await db.insert(googleTasksSettings).values({
+		userId,
+		enabled: true,
+		listName: 'Homework',
+		dueOffsetDays: 7,
+	})
 })
 
 after(async () => {
@@ -201,134 +253,132 @@ after(async () => {
 })
 
 // These run in order; each builds on the state the previous one left behind.
-describe('syncOutputCalendar', () => {
-	it('creates the list and only mirrors identifiable assignments', async () => {
-		const result = await syncOutputCalendar(outputId)
-		assert.deepEqual(result, { ok: true, added: 1, skipped: 0 })
+describe('syncGoogleTasks', () => {
+	it('creates the list and mirrors every event that has a uid', async () => {
+		const result = await syncGoogleTasks(userId)
+		assert.deepEqual(result, {
+			ok: true,
+			added: 2,
+			updated: 0,
+			removed: 0,
+			skipped: 0,
+		})
 		assert.deepEqual(listTitles(), ['Homework'])
-		// The 90-minute lecture is not an assignment, and the UID-less event
-		// could never be recognized again.
-		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
-	})
-
-	it('writes the due date and the canvas marker into the new task', () => {
-		const task = taskFor('event-assignment-1')
-		assert.equal(task?.due, '2026-08-24T00:00:00.000Z')
-		assert.match(task?.notes ?? '', /Due Aug 24, 2026, 11:59\s?PM/)
-		assert.match(task?.notes ?? '', /\[canvas:event-assignment-1\]$/)
-	})
-
-	it('creates nothing on a second pass when the feed is unchanged', async () => {
-		clearSourceCache()
-		const result = await syncOutputCalendar(outputId)
-		assert.deepEqual(result, { ok: true, added: 0, skipped: 1 })
-	})
-
-	it('renames the existing list instead of creating a second one', async () => {
-		await db
-			.update(outputCalendars)
-			.set({ tasksListName: 'School Work' })
-			.where(eq(outputCalendars.id, outputId))
-		clearSourceCache()
-
-		await syncOutputCalendar(outputId)
-		assert.deepEqual(listTitles(), ['School Work'])
-		assert.equal(lists.size, 1)
-	})
-
-	it('leaves a task the user rewrote completely alone', async () => {
-		const task = taskFor('event-assignment-1')
-		assert.ok(task)
-		task.title = 'Start homework 3 early'
-		task.due = '2026-08-20T00:00:00.000Z'
-		task.notes = `my own plan\n\n[canvas:event-assignment-1]`
-		clearSourceCache()
-
-		const result = await syncOutputCalendar(outputId)
-		assert.deepEqual(result, { ok: true, added: 0, skipped: 1 })
-
-		const after = taskFor('event-assignment-1')
-		assert.equal(after?.title, 'Start homework 3 early')
-		assert.equal(after?.due, '2026-08-20T00:00:00.000Z')
-		assert.equal(after?.notes, 'my own plan\n\n[canvas:event-assignment-1]')
-		assert.equal(storedTasks().length, 1)
-	})
-
-	it('adds new assignments without removing ones that left the feed', async () => {
-		feed = calendarFeed([homework4, lecture])
-		clearSourceCache()
-
-		const result = await syncOutputCalendar(outputId)
-		assert.deepEqual(result, { ok: true, added: 1, skipped: 0 })
+		// The lecture copies over too; only the UID-less event is skipped.
 		assert.deepEqual(taskTitles(), [
-			'Start homework 3 early',
-			'Homework 4 [CST463-01_2264]',
+			'Homework 3 [CST463-01_2264]',
+			'Lecture [CST463-01_2264]',
 		])
 	})
 
-	it('does not bring back a task the user deleted', async () => {
-		const task = taskFor('event-assignment-2')
-		assert.ok(task)
-		task.deleted = true
-		clearSourceCache()
-
-		const result = await syncOutputCalendar(outputId)
-		assert.deepEqual(result, { ok: true, added: 0, skipped: 1 })
-		assert.equal(storedTasks().length, 2)
-		assert.deepEqual(taskTitles(), ['Start homework 3 early'])
+	it('writes the offset due date and the deadline marker into the task', () => {
+		const task = taskFor('event-assignment-1')
+		assert.equal(task?.due, '2026-08-17T00:00:00.000Z')
+		assert.match(task?.notes ?? '', /Deadline: Aug 24, 2026, 11:59\s?PM/)
+		assert.match(task?.notes ?? '', /\[canvas:event-assignment-1\]$/)
 	})
 
-	it('keeps an explicit list name when the calendar is renamed', async () => {
-		await db
-			.update(outputCalendars)
-			.set({ name: 'Renamed Calendar' })
-			.where(eq(outputCalendars.id, outputId))
+	it('changes nothing on a second pass when the feed is unchanged', async () => {
 		clearSourceCache()
-
-		await syncOutputCalendar(outputId)
-		assert.deepEqual(listTitles(), ['School Work'])
-	})
-
-	it('falls back to the calendar name once the list name is cleared', async () => {
-		await db
-			.update(outputCalendars)
-			.set({ tasksListName: null })
-			.where(eq(outputCalendars.id, outputId))
-		clearSourceCache()
-
-		await syncOutputCalendar(outputId)
-		assert.deepEqual(listTitles(), ['Renamed Calendar'])
-
-		const [row] = await db
-			.select()
-			.from(outputCalendars)
-			.where(eq(outputCalendars.id, outputId))
-		assert.equal(row?.tasksLastSyncError, null)
-		assert.ok(row?.tasksLastSyncAt)
-	})
-
-	it('skips a feed-triggered run that follows a recent sync', async () => {
-		clearSourceCache()
-		const result = await syncOutputCalendar(outputId, {
-			respectInterval: true,
-		})
+		const result = await syncGoogleTasks(userId)
 		assert.deepEqual(result, {
-			ok: false,
-			message: 'This calendar synced recently.',
+			ok: true,
+			added: 0,
+			updated: 0,
+			removed: 0,
+			skipped: 2,
 		})
 	})
 
-	it('runs a feed-triggered sync once the interval has passed', async () => {
-		await db
-			.update(outputCalendars)
-			.set({ tasksLastSyncAt: new Date(Date.now() - 60 * 60 * 1000) })
-			.where(eq(outputCalendars.id, outputId))
+	it('moves the task when the assignment is rescheduled', async () => {
+		feed = calendarFeed([homework3Moved, lecture])
 		clearSourceCache()
 
-		const result = await syncOutputCalendar(outputId, {
-			respectInterval: true,
+		const result = await syncGoogleTasks(userId)
+		assert.deepEqual(result, {
+			ok: true,
+			added: 0,
+			updated: 1,
+			removed: 0,
+			skipped: 1,
 		})
-		assert.deepEqual(result, { ok: true, added: 0, skipped: 1 })
+		assert.equal(taskFor('event-assignment-1')?.due, '2026-08-26T00:00:00.000Z')
+	})
+
+	it('keeps a task the user deleted instead of re-adding it', async () => {
+		// Delete the lecture task as the user would, leaving the feed alone.
+		userDeletes('event-lecture')
+		clearSourceCache()
+
+		const result = await syncGoogleTasks(userId)
+		assert.deepEqual(result, {
+			ok: true,
+			added: 0,
+			updated: 0,
+			removed: 0,
+			skipped: 2,
+		})
+		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
+
+		const row = await settingsRow()
+		assert.match(row?.dismissed ?? '', /event-lecture/)
+	})
+
+	it('still keeps it deleted on the next run', async () => {
+		clearSourceCache()
+		const result = await syncGoogleTasks(userId)
+		assert.deepEqual(result, {
+			ok: true,
+			added: 0,
+			updated: 0,
+			removed: 0,
+			skipped: 2,
+		})
+		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
+	})
+
+	it('recreates deleted tasks on Refresh and clears the memory', async () => {
+		clearSourceCache()
+		const result = await refreshGoogleTasks(userId)
+		assert.deepEqual(result, {
+			ok: true,
+			added: 1,
+			updated: 0,
+			removed: 0,
+			skipped: 1,
+		})
+		assert.deepEqual(taskTitles(), [
+			'Homework 3 [CST463-01_2264]',
+			'Lecture [CST463-01_2264]',
+		])
+
+		const row = await settingsRow()
+		assert.equal(row?.dismissed, '[]')
+		// A normal run afterwards leaves the rebuilt task alone.
+		clearSourceCache()
+		const next = await syncGoogleTasks(userId)
+		assert.deepEqual(next, {
+			ok: true,
+			added: 0,
+			updated: 0,
+			removed: 0,
+			skipped: 2,
+		})
+	})
+
+	it('removes a task once its event leaves the feed', async () => {
+		feed = calendarFeed([homework3Moved])
+		clearSourceCache()
+
+		const result = await syncGoogleTasks(userId)
+		assert.deepEqual(result, {
+			ok: true,
+			added: 0,
+			updated: 0,
+			removed: 1,
+			skipped: 1,
+		})
+		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
 	})
 
 	it('records the failure instead of throwing when Google is unreachable', async () => {
@@ -342,29 +392,23 @@ describe('syncOutputCalendar', () => {
 		clearSourceCache()
 
 		try {
-			const result = await syncOutputCalendar(outputId)
+			const result = await syncGoogleTasks(userId)
 			assert.equal(result.ok, false)
 
-			const [row] = await db
-				.select()
-				.from(outputCalendars)
-				.where(eq(outputCalendars.id, outputId))
-			assert.match(row?.tasksLastSyncError ?? '', /HTTP 500/)
+			const row = await settingsRow()
+			assert.match(row?.lastSyncError ?? '', /HTTP 500/)
 		} finally {
 			globalThis.fetch = stashed
 		}
 	})
 
-	it('refuses to sync a calendar with the toggle off', async () => {
+	it('refuses to sync while the toggle is off', async () => {
 		await db
-			.update(outputCalendars)
-			.set({ tasksEnabled: false })
-			.where(eq(outputCalendars.id, outputId))
+			.update(googleTasksSettings)
+			.set({ enabled: false })
+			.where(eq(googleTasksSettings.userId, userId))
 
-		const result = await syncOutputCalendar(outputId)
-		assert.deepEqual(result, {
-			ok: false,
-			message: 'Google Tasks sync is off for this calendar.',
-		})
+		const result = await syncGoogleTasks(userId)
+		assert.deepEqual(result, { ok: false, message: 'Google Tasks sync is off.' })
 	})
 })

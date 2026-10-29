@@ -1,4 +1,9 @@
-import { MAX_OUTPUT_CALENDARS } from '../db/schema.ts'
+import {
+	DEFAULT_DUE_OFFSET_DAYS,
+	DEFAULT_TASK_LIST_NAME,
+	dueOffsetOptions,
+	MAX_OUTPUT_CALENDARS,
+} from '../db/schema.ts'
 import { formatPacific } from '../lib/util.ts'
 import { ErrorBanner, Layout, SuccessBanner, UserNav } from './layout.tsx'
 
@@ -12,10 +17,22 @@ export type DashboardOutput = {
 	feedUrl: string
 	enabledCodes: string[]
 	addCanvasLink: boolean
-	tasksEnabled: boolean
-	tasksListName: string | null
-	tasksLastSyncAt: Date | null
-	tasksLastSyncError: string | null
+}
+
+export type DashboardGoogleTasks = {
+	enabled: boolean
+	listName: string | null
+	dueOffsetDays: number
+	lastSyncAt: Date | null
+	lastSyncError: string | null
+}
+
+const DEFAULT_GOOGLE_TASKS: DashboardGoogleTasks = {
+	enabled: false,
+	listName: null,
+	dueOffsetDays: DEFAULT_DUE_OFFSET_DAYS,
+	lastSyncAt: null,
+	lastSyncError: null,
 }
 
 export function DashboardPage(props: {
@@ -27,6 +44,8 @@ export function DashboardPage(props: {
 	googleConfigured?: boolean
 	googleConnected?: boolean
 	beta?: boolean
+	googleTasks?: DashboardGoogleTasks
+	taskListNames?: string[]
 	error?: string | null
 	success?: string | null
 }) {
@@ -38,6 +57,8 @@ export function DashboardPage(props: {
 	// a save or a sync.
 	const beta = props.beta === true
 	const betaQuery = beta ? '?beta=true' : ''
+	const googleTasks = props.googleTasks ?? DEFAULT_GOOGLE_TASKS
+	const taskListNames = props.taskListNames ?? []
 
 	return (
 		<Layout
@@ -99,15 +120,113 @@ export function DashboardPage(props: {
 					{props.googleConnected ? (
 						<>
 							<p>
-								Connected. Each output calendar below can mirror its assignments
-								into its own Google task list. Tasks are created once, when a
-								calendar app refreshes the feed or when you use Sync now; after
-								that they are yours to edit, complete or delete, and this app
-								will not touch or re-add them.
+								Connected. Every Canvas event in your enabled courses is
+								mirrored into a single Google task list. Tasks follow the
+								feed: they are created, moved and removed as events change,
+								and any task you delete in Google Tasks is left deleted.
+							</p>
+							<form
+								method="post"
+								action={`/dashboard/google/settings${betaQuery}`}
+								class="pure-form pure-form-stacked"
+							>
+								<label class="pure-checkbox">
+									<input
+										type="checkbox"
+										name="enabled"
+										checked={googleTasks.enabled}
+									/>{' '}
+									Enable Google Tasks sync
+								</label>
+								{googleTasks.enabled ? (
+									<>
+										<label style="margin-top:0.5em">
+											Task list (category)
+											<input
+												class="pure-input-1"
+												type="text"
+												name="listName"
+												maxlength={80}
+												value={googleTasks.listName ?? ''}
+												placeholder={DEFAULT_TASK_LIST_NAME}
+												list="google-task-lists"
+											/>
+										</label>
+										<datalist id="google-task-lists">
+											{taskListNames.map((name) => (
+												<option value={name}>{name}</option>
+											))}
+										</datalist>
+										<label style="margin-top:0.5em">
+											Due date (days before the deadline)
+											<select name="dueOffsetDays" class="pure-input-1">
+												{dueOffsetOptions().map((days) => (
+													<option
+														value={String(days)}
+														selected={days === googleTasks.dueOffsetDays}
+													>
+														{days}
+													</option>
+												))}
+											</select>
+										</label>
+										<p class="form-hint">
+											Each task keeps its full deadline (time included) in its
+											notes; its due date is set this many days earlier so it
+											surfaces on your calendar ahead of the assignment.
+										</p>
+									</>
+								) : null}
+								<div class="form-actions">
+									<button type="submit" class="pure-button pure-button-primary">
+										Save Google Tasks settings
+									</button>
+								</div>
+							</form>
+							{googleTasks.lastSyncAt ? (
+								<p class="form-hint">
+									Last synced: {formatPacific(googleTasks.lastSyncAt)}.
+								</p>
+							) : null}
+							{googleTasks.lastSyncError ? (
+								<ErrorBanner
+									message={`Last Google Tasks sync failed: ${googleTasks.lastSyncError}`}
+								/>
+							) : null}
+							<form
+								method="post"
+								action={`/dashboard/google/sync${betaQuery}`}
+								style="margin-top:0.5em"
+							>
+								<button
+									type="submit"
+									class="pure-button"
+									disabled={!googleTasks.enabled}
+								>
+									Sync now
+								</button>
+							</form>
+							<form
+								method="post"
+								action={`/dashboard/google/refresh${betaQuery}`}
+								style="margin-top:0.5em"
+							>
+								<button
+									type="submit"
+									class="pure-button"
+									disabled={!googleTasks.enabled}
+								>
+									Refresh
+								</button>
+							</form>
+							<p class="form-hint">
+								Refresh rebuilds every task from the feed, including any you
+								have deleted in Google Tasks.
 							</p>
 							<form
 								method="post"
 								action={`/dashboard/google/disconnect${betaQuery}`}
+								style="margin-top:0.5em"
 							>
 								<button type="submit" class="pure-button">
 									Disconnect Google
@@ -116,8 +235,8 @@ export function DashboardPage(props: {
 							<p class="form-hint">
 								Disconnecting deletes the access this app has stored and stops
 								all syncing. Task lists and tasks already created stay in your
-								Google account, here and if you delete an output calendar. To
-								also remove this app's access on Google's side, visit{' '}
+								Google account. To also remove this app's access on Google's
+								side, visit{' '}
 								<a
 									href="https://myaccount.google.com/permissions"
 									target="_blank"
@@ -131,9 +250,10 @@ export function DashboardPage(props: {
 					) : (
 						<>
 							<p>
-								Connect a Google account to turn Canvas assignments into Google
-								Tasks. An assignment is any event due just before midnight, or
-								any event shorter than 20 minutes.
+								Connect a Google account to mirror every Canvas event in your
+								enabled courses into Google Tasks. Each task keeps its full
+								deadline in its notes and is due ahead of time, and tasks are
+								created, moved and removed to match your Canvas feed.
 							</p>
 							<form
 								method="post"
@@ -231,45 +351,6 @@ export function DashboardPage(props: {
 												Modify event description to add Canvas link
 												(recommended)
 											</label>
-											{props.googleConfigured && beta ? (
-												<>
-													<label class="pure-checkbox">
-														<input
-															type="checkbox"
-															name="tasksEnabled"
-															checked={output.tasksEnabled}
-															disabled={!props.googleConnected}
-														/>{' '}
-														Sync assignments in this calendar to Google Tasks
-													</label>
-													<label style="margin-top:0.5em">
-														Google task list name
-														<input
-															class="pure-input-1"
-															type="text"
-															name="tasksListName"
-															maxlength={80}
-															value={output.tasksListName ?? ''}
-															placeholder={output.name}
-														/>
-													</label>
-													<p class="form-hint">
-														Leave blank to use the calendar name.
-														{output.tasksEnabled ? (
-															<>
-																{' '}
-																Last synced:{' '}
-																{formatPacific(output.tasksLastSyncAt)}.
-															</>
-														) : null}
-													</p>
-													{output.tasksLastSyncError ? (
-														<ErrorBanner
-															message={`Last Google Tasks sync failed: ${output.tasksLastSyncError}`}
-														/>
-													) : null}
-												</>
-											) : null}
 											<label style="margin-top:1em">
 												Subscribe URL
 												<span
@@ -299,19 +380,6 @@ export function DashboardPage(props: {
 												>
 													Save calendar
 												</button>
-												{props.googleConfigured && beta ? (
-													<button
-														type="submit"
-														class="pure-button"
-														formaction={`/dashboard/outputs/${output.id}/sync${betaQuery}`}
-														formnovalidate
-														disabled={
-															!props.googleConnected || !output.tasksEnabled
-														}
-													>
-														Sync now
-													</button>
-												) : null}
 											</div>
 										</fieldset>
 									</form>

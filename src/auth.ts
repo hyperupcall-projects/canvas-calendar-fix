@@ -34,6 +34,9 @@ export const auth = betterAuth({
 			// Magic-link sign-in creates no account row, so Google is usually the
 			// only one. Without this, disconnecting it always fails.
 			allowUnlinkingAll: true,
+			// The identity here is the school email; Google is only used for Tasks,
+			// so its address is allowed to differ from the signed-in one.
+			allowDifferentEmails: true,
 		},
 	},
 	socialProviders: googleConfigured

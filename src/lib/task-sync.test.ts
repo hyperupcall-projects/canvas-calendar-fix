@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { resolveTasksListName } from '../db/schema.ts'
 import { parseCalendar, type ParsedEvent } from './ics.ts'
 import {
 	canvasUidFromNotes,
-	isAssignmentEvent,
+	DEFAULT_TASK_TITLE,
+	MAX_NOTES_LENGTH,
+	MAX_TITLE_LENGTH,
+	taskDeadline,
 	taskDueDate,
 	taskNotes,
+	taskTitle,
 } from './task-sync.ts'
 
 function event(body: string): ParsedEvent {
@@ -44,80 +47,74 @@ DTSTART;VALUE=DATE:20260906
 SUMMARY:Weekly Study Guide 02 [CST463-01_2264]
 `)
 
-const lecture = event(`UID:lecture
-DTSTART:20260824T170000Z
-DTEND:20260824T183000Z
-SUMMARY:Lecture [CST334-01_2264]
-`)
-
-const shortMeeting = event(`UID:short-meeting
-DTSTART:20260824T170000Z
-DTEND:20260824T171500Z
-SUMMARY:Standup [CST334-01_2264]
-`)
-
-const twentyMinutes = event(`UID:twenty-minutes
-DTSTART:20260824T170000Z
-DTEND:20260824T172000Z
-SUMMARY:Office hours [CST334-01_2264]
-`)
-
-describe('isAssignmentEvent', () => {
-	it('treats a deadline just before midnight as an assignment', () => {
-		assert.equal(lateNight.start.toISOString(), '2026-08-25T06:59:00.000Z')
-		assert.equal(isAssignmentEvent(lateNight), true)
+describe('taskDueDate', () => {
+	it('steps the due date back from the Pacific deadline day', () => {
+		// The 11:59 PM deadline on Aug 24 becomes due a week earlier by default.
+		assert.equal(taskDueDate(lateNight, 7), '2026-08-17T00:00:00.000Z')
+		assert.equal(taskDueDate(lateNight, 1), '2026-08-23T00:00:00.000Z')
 	})
 
-	it('treats a Canvas zero-length due instant as an assignment', () => {
-		// parseCalendar pins these to one minute, which clears the 20-minute bar.
-		assert.equal(middayDue.end.getTime() - middayDue.start.getTime(), 60_000)
-		assert.equal(isAssignmentEvent(middayDue), true)
+	it('crosses a month boundary correctly', () => {
+		const september = event(`UID:sept
+DTSTART:20260903T065900Z
+DTEND:20260903T065900Z
+SUMMARY:Homework 4 [CST463-01_2264]
+`)
+		// Deadline is Sep 2 Pacific, seven days earlier is Aug 26.
+		assert.equal(taskDueDate(september, 7), '2026-08-26T00:00:00.000Z')
 	})
 
-	it('ignores all-day events and full-length meetings', () => {
-		assert.equal(allDay.allDay, true)
-		assert.equal(isAssignmentEvent(allDay), false)
-		assert.equal(isAssignmentEvent(lecture), false)
-	})
-
-	it('uses 20 minutes as an exclusive bound', () => {
-		assert.equal(isAssignmentEvent(shortMeeting), true)
-		assert.equal(isAssignmentEvent(twentyMinutes), false)
+	it('keeps an all-day event on its own calendar day', () => {
+		// The date-only event covers Sep 6, so its deadline resolves to that day.
+		assert.equal(taskDueDate(allDay, 7), '2026-08-30T00:00:00.000Z')
 	})
 })
 
-describe('taskDueDate', () => {
-	it('keeps an 11:59 PM Pacific deadline on its own calendar day', () => {
-		// The event ends at midnight Pacific the next day, and Google Tasks drops
-		// the time, so a naive conversion would land the task a day late.
-		assert.equal(lateNight.end.toISOString(), '2026-08-25T07:00:00.000Z')
-		assert.equal(taskDueDate(lateNight), '2026-08-24T00:00:00.000Z')
+describe('taskDeadline', () => {
+	it('keeps the time Google discards, in Pacific', () => {
+		assert.match(taskDeadline(lateNight), /Aug 24, 2026, 11:59\s?PM/)
 	})
 
-	it('uses the Pacific date for a midday deadline', () => {
-		assert.equal(taskDueDate(middayDue), '2026-08-24T00:00:00.000Z')
+	it('marks an all-day event as all day', () => {
+		assert.match(taskDeadline(allDay), /Sep 6, 2026 \(all day\)/)
+	})
+})
+
+describe('taskTitle', () => {
+	it('clamps to the length Google allows', () => {
+		const long = { ...lateNight, summary: 'x'.repeat(2000) }
+		assert.equal(taskTitle(long).length, MAX_TITLE_LENGTH)
+	})
+
+	it('never leaves the title blank', () => {
+		assert.equal(taskTitle({ ...lateNight, summary: '   ' }), DEFAULT_TASK_TITLE)
 	})
 })
 
 describe('taskNotes', () => {
-	it('keeps the due time Google discards, plus the Canvas link', () => {
+	it('keeps the deadline with its time, plus the Canvas link', () => {
 		const notes = taskNotes(lateNight)
-		assert.match(notes, /Due Aug 24, 2026, 11:59 PM/)
+		assert.match(notes, /^Deadline: Aug 24, 2026, 11:59\s?PM/)
 		assert.match(notes, /assignment_1/)
 	})
 
 	it('ends with the marker that identifies the event later', () => {
 		assert.match(taskNotes(lateNight), /\n\[canvas:late-night\]$/)
 	})
+
+	it('trims an over-long description but keeps the tracking marker', () => {
+		const huge = { ...lateNight, description: 'y'.repeat(20_000) }
+		const notes = taskNotes(huge)
+		assert.ok(notes.length <= MAX_NOTES_LENGTH, `notes length ${notes.length}`)
+		assert.match(notes, /\n\[canvas:late-night\]$/)
+		assert.equal(canvasUidFromNotes(notes), 'late-night')
+	})
 })
 
 describe('canvasUidFromNotes', () => {
 	it('reads back the uid that taskNotes embedded', () => {
 		assert.equal(canvasUidFromNotes(taskNotes(lateNight)), 'late-night')
-		assert.equal(
-			canvasUidFromNotes(taskNotes(middayDue)),
-			'midday-due',
-		)
+		assert.equal(canvasUidFromNotes(taskNotes(middayDue)), 'midday-due')
 	})
 
 	it('still finds the marker after the user edits around it', () => {
@@ -131,26 +128,5 @@ describe('canvasUidFromNotes', () => {
 		assert.equal(canvasUidFromNotes(undefined), null)
 		assert.equal(canvasUidFromNotes('groceries'), null)
 		assert.equal(canvasUidFromNotes('[canvas:]'), null)
-	})
-})
-
-describe('resolveTasksListName', () => {
-	it('falls back to the calendar name when no list name is set', () => {
-		assert.equal(
-			resolveTasksListName({ name: 'Calendar 1', tasksListName: null }),
-			'Calendar 1',
-		)
-	})
-
-	it('keeps a task list name that differs from the calendar name', () => {
-		assert.equal(
-			resolveTasksListName({ name: 'Class', tasksListName: 'Homework' }),
-			'Homework',
-		)
-		// Renaming the calendar must not disturb an explicit list name.
-		assert.equal(
-			resolveTasksListName({ name: 'Renamed', tasksListName: 'Homework' }),
-			'Homework',
-		)
 	})
 })

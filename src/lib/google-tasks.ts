@@ -1,6 +1,6 @@
 const API_BASE = 'https://tasks.googleapis.com/tasks/v1'
 const FETCH_TIMEOUT_MS = 15_000
-const MAX_TASKS_PER_PAGE = 100
+const MAX_RESULTS_PER_PAGE = 100
 
 export type GoogleTask = {
 	id: string
@@ -9,11 +9,18 @@ export type GoogleTask = {
 	notes?: string
 	status?: string
 	deleted?: boolean
+	hidden?: boolean
+	parent?: string
+}
+
+export type GoogleTaskList = {
+	id: string
+	title: string
 }
 
 export type GoogleTaskInput = {
 	title: string
-	due: string
+	due?: string
 	notes?: string
 }
 
@@ -52,9 +59,14 @@ async function request(
 		})
 
 		if (!response.ok) {
+			// Google puts the reason in the response body (for example "Request
+			// contains an invalid argument."); keep a trimmed copy so a sync failure
+			// is actionable instead of just an opaque status code.
+			const detail = (await response.text().catch(() => '')).trim()
+			const suffix = detail.length > 0 ? `: ${detail.slice(0, 300)}` : '.'
 			throw new GoogleTasksError(
 				response.status,
-				`Google Tasks returned HTTP ${response.status}.`,
+				`Google Tasks returned HTTP ${response.status}${suffix}`,
 			)
 		}
 		if (response.status === 204) {
@@ -72,6 +84,29 @@ async function request(
 	}
 }
 
+/** Every task list the account already has, for the picker and name lookup. */
+export async function listTaskLists(
+	accessToken: string,
+): Promise<GoogleTaskList[]> {
+	const lists: GoogleTaskList[] = []
+	let pageToken: string | undefined
+	do {
+		const page = (await request(accessToken, '/users/@me/lists', {
+			query: {
+				maxResults: String(MAX_RESULTS_PER_PAGE),
+				...(pageToken ? { pageToken } : {}),
+			},
+		})) as { items?: GoogleTaskList[]; nextPageToken?: string } | null
+		for (const item of page?.items ?? []) {
+			if (item.id) {
+				lists.push({ id: item.id, title: item.title ?? '' })
+			}
+		}
+		pageToken = page?.nextPageToken
+	} while (pageToken)
+	return lists
+}
+
 async function createTaskList(
 	accessToken: string,
 	title: string,
@@ -87,47 +122,49 @@ async function createTaskList(
 }
 
 /**
- * Resolves the task list to sync into, creating it when there is none and
- * renaming it when the user has changed the name on our side. The remote title
- * is the comparison point so the name is not stored twice.
+ * Resolves the task list to sync into. A stored id wins so tasks keep landing in
+ * the list the user picked; otherwise the list is matched by title and only
+ * created when nothing matches. A stored id that Google no longer has falls back
+ * to the title match, so a list deleted in Google is rebuilt rather than being
+ * a permanent failure.
  */
 export async function ensureTaskList(
 	accessToken: string,
-	listId: string | null,
-	title: string,
+	options: { listId: string | null; name: string },
 ): Promise<{ id: string; created: boolean }> {
-	if (!listId) {
-		return { id: await createTaskList(accessToken, title), created: true }
-	}
-
-	let existing: { id?: string; title?: string } | null
-	try {
-		existing = (await request(
-			accessToken,
-			`/users/@me/lists/${encodeURIComponent(listId)}`,
-		)) as { id?: string; title?: string } | null
-	} catch (error) {
-		// The user can delete the list in Google at any time; rebuild it rather
-		// than failing the sync forever.
-		if (error instanceof GoogleTasksError && error.status === 404) {
-			return { id: await createTaskList(accessToken, title), created: true }
+	if (options.listId) {
+		try {
+			const existing = (await request(
+				accessToken,
+				`/users/@me/lists/${encodeURIComponent(options.listId)}`,
+			)) as { id?: string; title?: string } | null
+			if (existing?.title !== options.name) {
+				await request(
+					accessToken,
+					`/users/@me/lists/${encodeURIComponent(options.listId)}`,
+					{ method: 'PATCH', body: { title: options.name } },
+				)
+			}
+			return { id: options.listId, created: false }
+		} catch (error) {
+			if (!(error instanceof GoogleTasksError && error.status === 404)) {
+				throw error
+			}
 		}
-		throw error
 	}
 
-	if (existing?.title !== title) {
-		await request(accessToken, `/users/@me/lists/${encodeURIComponent(listId)}`, {
-			method: 'PATCH',
-			body: { title },
-		})
+	const match = (await listTaskLists(accessToken)).find(
+		(list) => list.title === options.name,
+	)
+	if (match) {
+		return { id: match.id, created: false }
 	}
-	return { id: listId, created: false }
+	return { id: await createTaskList(accessToken, options.name), created: true }
 }
 
 /**
- * Everything in the list, including the tasks the user completed or deleted.
- * A caller checking whether a task already exists has to see those too, or it
- * would recreate work the user has already dealt with.
+ * Everything in the list, including tasks the user completed or deleted, so a
+ * caller reconciling against it never resurrects work already dealt with.
  */
 export async function listTasks(
 	accessToken: string,
@@ -141,7 +178,7 @@ export async function listTasks(
 			`/lists/${encodeURIComponent(listId)}/tasks`,
 			{
 				query: {
-					maxResults: String(MAX_TASKS_PER_PAGE),
+					maxResults: String(MAX_RESULTS_PER_PAGE),
 					showCompleted: 'true',
 					showHidden: 'true',
 					showDeleted: 'true',
@@ -169,4 +206,31 @@ export async function insertTask(
 		throw new Error('Google did not return a task id.')
 	}
 	return created.id
+}
+
+/** Used when an assignment is renamed or rescheduled and the task must follow. */
+export async function patchTask(
+	accessToken: string,
+	listId: string,
+	taskId: string,
+	task: GoogleTaskInput,
+): Promise<void> {
+	await request(
+		accessToken,
+		`/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
+		{ method: 'PATCH', body: task },
+	)
+}
+
+/** Used when an assignment disappears from the feed. */
+export async function deleteTask(
+	accessToken: string,
+	listId: string,
+	taskId: string,
+): Promise<void> {
+	await request(
+		accessToken,
+		`/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
+		{ method: 'DELETE' },
+	)
 }
