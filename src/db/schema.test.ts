@@ -107,3 +107,47 @@ describe('resolveTaskListName', () => {
 		assert.equal(resolveTaskListName('Homework'), 'Homework')
 	})
 })
+
+describe('per-output Google Tasks migration', () => {
+	it('preserves settings on the first output and cascades deletion', async () => {
+		const { default: Database } = await import('better-sqlite3')
+		const { readFileSync, readdirSync } = await import('node:fs')
+		const sqlite = new Database(':memory:')
+		try {
+			sqlite.pragma('foreign_keys = ON')
+			for (const file of readdirSync('drizzle')
+				.filter((file) => /^000[0-6].*\.sql$/.test(file))
+				.sort()) {
+				sqlite.exec(readFileSync(`drizzle/${file}`, 'utf8'))
+			}
+			sqlite.exec(`INSERT INTO user (id,name,email,created_at,updated_at) VALUES ('u','Name','test@csumb.edu',1,1);
+				INSERT INTO calendars (id,user_id,source_url,created_at,updated_at) VALUES ('c','u','url',1,1);
+				INSERT INTO output_calendars (id,calendar_id,name,public_token,position,created_at) VALUES ('a','c','First','a',1,1),('b','c','Second','b',2,1);
+				INSERT INTO google_tasks_settings (user_id,enabled,list_name,list_id,due_offset_days,skip_older_than_days,dismissed,last_sync_at,last_sync_error) VALUES ('u',1,'Homework','list',3,4,'["deleted"]',100,'error');`)
+			sqlite.exec(readFileSync('drizzle/0007_output_google_tasks.sql', 'utf8'))
+			const rows = sqlite.prepare('SELECT * FROM google_tasks_settings').all()
+			assert.deepEqual(rows, [
+				{
+					output_calendar_id: 'a',
+					user_id: 'u',
+					legacy_task_markers: 1,
+					enabled: 1,
+					list_name: 'Homework',
+					list_id: 'list',
+					due_offset_days: 3,
+					skip_older_than_days: 4,
+					dismissed: '["deleted"]',
+					last_sync_at: 100,
+					last_sync_error: 'error',
+				},
+			])
+			sqlite.exec("DELETE FROM output_calendars WHERE id = 'a'")
+			assert.deepEqual(
+				sqlite.prepare('SELECT * FROM google_tasks_settings').all(),
+				[],
+			)
+		} finally {
+			sqlite.close()
+		}
+	})
+})

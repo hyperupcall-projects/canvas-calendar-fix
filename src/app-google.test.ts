@@ -12,7 +12,8 @@ const { app } = await import('./app.tsx')
 const { auth } = await import('./auth.ts')
 const { db } = await import('./db/index.ts')
 const { account, session, user } = await import('./db/auth-schema.ts')
-const { googleTasksSettings } = await import('./db/schema.ts')
+const { googleTasksSettings, calendars, outputCalendars } =
+	await import('./db/schema.ts')
 const { env } = await import('./env.ts')
 
 const realFetch = globalThis.fetch
@@ -29,7 +30,9 @@ after(() => {
 	globalThis.fetch = realFetch
 })
 
-async function makeUser(name: string): Promise<{ userId: string; cookie: string }> {
+async function makeUser(
+	name: string,
+): Promise<{ userId: string; outputId: string; cookie: string }> {
 	const userId = crypto.randomUUID()
 	await db.insert(user).values({
 		id: userId,
@@ -48,19 +51,40 @@ async function makeUser(name: string): Promise<{ userId: string; cookie: string 
 		updatedAt: now,
 		userId,
 	})
+	const calendarId = crypto.randomUUID()
+	const outputId = crypto.randomUUID()
+	await db.insert(calendars).values({
+		id: calendarId,
+		userId,
+		sourceUrl: 'https://csumb.instructure.com/feeds/calendars/user_test.ics',
+		createdAt: now,
+		updatedAt: now,
+	})
+	await db.insert(outputCalendars).values({
+		id: outputId,
+		calendarId,
+		name: 'Calendar 1',
+		publicToken: crypto.randomUUID(),
+		position: 1,
+		createdAt: now,
+	})
 	const signed = `${sessionToken}.${await makeSignature(sessionToken, env.BETTER_AUTH_SECRET)}`
 	return {
 		userId,
+		outputId,
 		cookie: `better-auth.session_token=${encodeURIComponent(signed)}`,
 	}
 }
 
-function postSettings(cookie: string, body: URLSearchParams) {
-	return app.request('/dashboard/google/settings?beta=true', {
-		method: 'POST',
-		headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-		body,
-	})
+function postSettings(cookie: string, outputId: string, body: URLSearchParams) {
+	return app.request(
+		`/dashboard/outputs/${outputId}/google/settings?beta=true`,
+		{
+			method: 'POST',
+			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+			body,
+		},
+	)
 }
 
 describe('google tasks routes', () => {
@@ -73,10 +97,11 @@ describe('google tasks routes', () => {
 	})
 
 	it('saves the enable flag, list name, due offset and skip threshold', async () => {
-		const { userId, cookie } = await makeUser('gsave')
+		const { userId, outputId, cookie } = await makeUser('gsave')
 		try {
 			const response = await postSettings(
 				cookie,
+				outputId,
 				new URLSearchParams([
 					['enabled', 'on'],
 					['listName', 'Homework'],
@@ -105,10 +130,11 @@ describe('google tasks routes', () => {
 	})
 
 	it('clamps out-of-range settings and defaults the toggle to off', async () => {
-		const { userId, cookie } = await makeUser('gclamp')
+		const { userId, outputId, cookie } = await makeUser('gclamp')
 		try {
 			await postSettings(
 				cookie,
+				outputId,
 				new URLSearchParams([
 					['dueOffsetDays', '99'],
 					['skipOlderThanDays', '99'],
@@ -129,10 +155,13 @@ describe('google tasks routes', () => {
 	it('starts the Google link with the OAuth state cookie attached', async () => {
 		const { userId, cookie } = await makeUser('gconnect')
 		try {
-			const response = await app.request('/dashboard/google/connect?beta=true', {
-				method: 'POST',
-				headers: { cookie },
-			})
+			const response = await app.request(
+				'/dashboard/google/connect?beta=true',
+				{
+					method: 'POST',
+					headers: { cookie },
+				},
+			)
 			assert.equal(response.status, 302)
 			assert.match(
 				response.headers.get('location') ?? '',
@@ -169,14 +198,17 @@ describe('google tasks routes', () => {
 			assert.equal(page.status, 200)
 			const html = await page.text()
 			assert.match(html, /Google Tasks/)
-			assert.match(html, /action="\/dashboard\/google\/settings\?beta=true"/)
+			assert.match(
+				html,
+				/action="\/dashboard\/outputs\/[^/]+\/google\/settings\?beta=true"/,
+			)
 		} finally {
 			await db.delete(user).where(eq(user.id, userId))
 		}
 	})
 
 	it('disconnecting Google clears sync state but keeps the list name', async () => {
-		const { userId, cookie } = await makeUser('gdisc')
+		const { userId, outputId, cookie } = await makeUser('gdisc')
 		try {
 			await db.insert(account).values({
 				id: crypto.randomUUID(),
@@ -189,6 +221,7 @@ describe('google tasks routes', () => {
 				updatedAt: now,
 			})
 			await db.insert(googleTasksSettings).values({
+				outputCalendarId: outputId,
 				userId,
 				enabled: true,
 				listName: 'Homework',
@@ -224,6 +257,81 @@ describe('google tasks routes', () => {
 			assert.equal(row?.listName, 'Homework')
 		} finally {
 			await db.delete(user).where(eq(user.id, userId))
+		}
+	})
+})
+
+describe('per-output Google Tasks access', () => {
+	it('saves independent settings, preserves disabled options, and rejects another user’s output', async () => {
+		const first = await makeUser('first-output')
+		const stranger = await makeUser('other-owner')
+		try {
+			const [source] = await db
+				.select()
+				.from(calendars)
+				.where(eq(calendars.userId, first.userId))
+			const secondId = crypto.randomUUID()
+			await db
+				.insert(outputCalendars)
+				.values({
+					id: secondId,
+					calendarId: source.id,
+					name: 'TA',
+					publicToken: crypto.randomUUID(),
+					position: 2,
+					createdAt: now,
+				})
+			await postSettings(
+				first.cookie,
+				first.outputId,
+				new URLSearchParams({
+					enabled: 'on',
+					listName: 'Class',
+					dueOffsetDays: '3',
+					skipOlderThanDays: '4',
+				}),
+			)
+			await postSettings(
+				first.cookie,
+				secondId,
+				new URLSearchParams({
+					enabled: 'on',
+					listName: 'TA',
+					dueOffsetDays: '9',
+				}),
+			)
+			await postSettings(first.cookie, first.outputId, new URLSearchParams())
+			const rows = await db
+				.select()
+				.from(googleTasksSettings)
+				.where(eq(googleTasksSettings.userId, first.userId))
+			const primary = rows.find(
+				(row) => row.outputCalendarId === first.outputId,
+			)
+			const second = rows.find((row) => row.outputCalendarId === secondId)
+			assert.equal(primary?.enabled, false)
+			assert.equal(primary?.listName, 'Class')
+			assert.equal(primary?.dueOffsetDays, 3)
+			assert.equal(primary?.skipOlderThanDays, 4)
+			assert.equal(second?.enabled, true)
+			assert.equal(second?.dueOffsetDays, 9)
+			for (const action of ['settings', 'sync', 'refresh']) {
+				const response = await app.request(
+					`/dashboard/outputs/${secondId}/google/${action}?beta=true`,
+					{ method: 'POST', headers: { cookie: stranger.cookie } },
+				)
+				assert.match(response.headers.get('location') ?? '', /not%20found/)
+			}
+			assert.deepEqual(
+				await db
+					.select()
+					.from(googleTasksSettings)
+					.where(eq(googleTasksSettings.userId, first.userId)),
+				rows,
+			)
+		} finally {
+			await db.delete(user).where(eq(user.id, first.userId))
+			await db.delete(user).where(eq(user.id, stranger.userId))
 		}
 	})
 })

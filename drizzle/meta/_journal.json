@@ -50,6 +50,13 @@
 			"when": 1757700000000,
 			"tag": "0006_skip_older_than_days",
 			"breakpoints": true
+		},
+		{
+			"idx": 7,
+			"version": "6",
+			"when": 1757800000000,
+			"tag": "0007_output_google_tasks",
+			"breakpoints": true
 		}
 	]
 }

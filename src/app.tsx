@@ -288,11 +288,10 @@ app.get('/dashboard', async (c) => {
 
 	const googleConnected =
 		googleConfigured && (await googleAccountFor(currentUser.id)) != null
-	const [settings] = await db
+	const settings = await db
 		.select()
 		.from(googleTasksSettings)
 		.where(eq(googleTasksSettings.userId, currentUser.id))
-		.limit(1)
 	// Best-effort: the list picker is a convenience and should never break the
 	// page, so a failed lookup just leaves the suggestions empty.
 	let taskListNames: string[] = []
@@ -322,19 +321,13 @@ app.get('/dashboard', async (c) => {
 				feedUrl: feedUrlFor(row.publicToken),
 				enabledCodes: enabledByOutput.get(row.id) ?? [],
 				addCanvasLink: row.addCanvasLink,
+				googleTasks: settings.find(
+					(setting) => setting.outputCalendarId === row.id,
+				),
 			}))}
 			googleConfigured={googleConfigured}
 			googleConnected={googleConnected}
 			beta={beta}
-			googleTasks={{
-				enabled: settings?.enabled ?? false,
-				listName: settings?.listName ?? null,
-				dueOffsetDays: settings?.dueOffsetDays ?? DEFAULT_DUE_OFFSET_DAYS,
-				skipOlderThanDays:
-					settings?.skipOlderThanDays ?? DEFAULT_SKIP_OLDER_THAN_DAYS,
-				lastSyncAt: settings?.lastSyncAt ?? null,
-				lastSyncError: settings?.lastSyncError ?? null,
-			}}
 			taskListNames={taskListNames}
 			error={c.req.query('error')}
 			success={
@@ -445,13 +438,18 @@ app.post('/dashboard/google/disconnect', async (c) => {
 	// goes, and the user's chosen list name is kept for reconnecting.
 	await db
 		.update(googleTasksSettings)
-		.set({ enabled: false, listId: null, lastSyncAt: null, lastSyncError: null })
+		.set({
+			enabled: false,
+			listId: null,
+			lastSyncAt: null,
+			lastSyncError: null,
+		})
 		.where(eq(googleTasksSettings.userId, currentUser.id))
 
 	return c.redirect(dashboardUrl(beta, { disconnected: '1' }))
 })
 
-app.post('/dashboard/google/settings', async (c) => {
+app.post('/dashboard/outputs/:id/google/settings', async (c) => {
 	const currentUser = c.get('user')
 	if (!currentUser) {
 		return c.redirect('/sign-in')
@@ -463,32 +461,46 @@ app.post('/dashboard/google/settings', async (c) => {
 		)
 	}
 
+	const outputId = c.req.param('id')
+	const { outputRows } = await loadCalendarForUser(currentUser.id)
+	if (!outputRows.some((output) => output.id === outputId)) {
+		return c.redirect(redirectWithError('That calendar was not found.', beta))
+	}
+
 	const body = await c.req.parseBody()
+	const [previous] = await db
+		.select()
+		.from(googleTasksSettings)
+		.where(eq(googleTasksSettings.outputCalendarId, outputId))
+		.limit(1)
 	const enabled = body.enabled != null
-	const listName = sanitizeTasksListName(String(body.listName ?? ''))
-	const dueOffsetDays = clampDueOffsetDays(Number(body.dueOffsetDays))
+	const listName = sanitizeTasksListName(
+		String(body.listName ?? previous?.listName ?? ''),
+	)
+	const dueOffsetDays = clampDueOffsetDays(
+		Number(
+			body.dueOffsetDays ?? previous?.dueOffsetDays ?? DEFAULT_DUE_OFFSET_DAYS,
+		),
+	)
 	const skipOlderThanDays = clampSkipOlderThanDays(
-		Number(body.skipOlderThanDays),
+		Number(
+			body.skipOlderThanDays ??
+				previous?.skipOlderThanDays ??
+				DEFAULT_SKIP_OLDER_THAN_DAYS,
+		),
 	)
 
-	const [existing] = await db
-		.select({
-			listName: googleTasksSettings.listName,
-			listId: googleTasksSettings.listId,
-		})
-		.from(googleTasksSettings)
-		.where(eq(googleTasksSettings.userId, currentUser.id))
-		.limit(1)
 	// Renaming points at a different list, so the stored id is dropped and the
 	// name is resolved again on the next sync. The previous list, and its tasks,
 	// are left untouched.
 	const listId =
-		existing?.listName === listName ? (existing.listId ?? null) : null
+		previous?.listName === listName ? (previous.listId ?? null) : null
 
 	await db
 		.insert(googleTasksSettings)
 		.values({
 			userId: currentUser.id,
+			outputCalendarId: outputId,
 			enabled,
 			listName,
 			listId,
@@ -496,14 +508,14 @@ app.post('/dashboard/google/settings', async (c) => {
 			skipOlderThanDays,
 		})
 		.onConflictDoUpdate({
-			target: googleTasksSettings.userId,
+			target: googleTasksSettings.outputCalendarId,
 			set: { enabled, listName, listId, dueOffsetDays, skipOlderThanDays },
 		})
 
 	return c.redirect(dashboardUrl(beta, { gtasks: '1' }))
 })
 
-app.post('/dashboard/google/sync', async (c) => {
+app.post('/dashboard/outputs/:id/google/sync', async (c) => {
 	const currentUser = c.get('user')
 	if (!currentUser) {
 		return c.redirect('/sign-in')
@@ -515,7 +527,13 @@ app.post('/dashboard/google/sync', async (c) => {
 		)
 	}
 
-	const result = await syncGoogleTasks(currentUser.id)
+	const outputId = c.req.param('id')
+	const { outputRows } = await loadCalendarForUser(currentUser.id)
+	if (!outputRows.some((output) => output.id === outputId)) {
+		return c.redirect(redirectWithError('That calendar was not found.', beta))
+	}
+
+	const result = await syncGoogleTasks(currentUser.id, outputId)
 	if (!result.ok) {
 		return c.redirect(redirectWithError(result.message, beta))
 	}
@@ -523,7 +541,7 @@ app.post('/dashboard/google/sync', async (c) => {
 	return c.redirect(dashboardUrl(beta, { synced: summary }))
 })
 
-app.post('/dashboard/google/refresh', async (c) => {
+app.post('/dashboard/outputs/:id/google/refresh', async (c) => {
 	const currentUser = c.get('user')
 	if (!currentUser) {
 		return c.redirect('/sign-in')
@@ -535,7 +553,13 @@ app.post('/dashboard/google/refresh', async (c) => {
 		)
 	}
 
-	const result = await refreshGoogleTasks(currentUser.id)
+	const outputId = c.req.param('id')
+	const { outputRows } = await loadCalendarForUser(currentUser.id)
+	if (!outputRows.some((output) => output.id === outputId)) {
+		return c.redirect(redirectWithError('That calendar was not found.', beta))
+	}
+
+	const result = await refreshGoogleTasks(currentUser.id, outputId)
 	if (!result.ok) {
 		return c.redirect(redirectWithError(result.message, beta))
 	}
@@ -800,7 +824,7 @@ app.get('/feed/:token', async (c) => {
 		// in use, so it doubles as the sync trigger. Deliberately not awaited: the
 		// feed should never wait on Google, so the request finishes fast.
 		if (googleConfigured) {
-			syncGoogleTasksInBackground(calendar.userId)
+			syncGoogleTasksInBackground(calendar.userId, output.id)
 		}
 		return c.body(filtered, 200, {
 			'content-type': 'text/calendar; charset=utf-8',

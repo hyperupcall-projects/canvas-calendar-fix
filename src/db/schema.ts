@@ -86,15 +86,18 @@ export const outputCalendarCourses = sqliteTable(
 	],
 )
 
-/**
- * One Google Tasks configuration per user. A single task list holds every
- * synced assignment, with the course filter coming from the union of the
- * courses the user has enabled across their output calendars.
- */
+/** Independent task settings and sync state for each output calendar. */
 export const googleTasksSettings = sqliteTable('google_tasks_settings', {
-	userId: text('user_id')
+	outputCalendarId: text('output_calendar_id')
 		.primaryKey()
+		.references(() => outputCalendars.id, { onDelete: 'cascade' }),
+	userId: text('user_id')
+		.notNull()
 		.references(() => user.id, { onDelete: 'cascade' }),
+	// Only the migrated first output owns tasks created before output scoping.
+	legacyTaskMarkers: integer('legacy_task_markers', { mode: 'boolean' })
+		.notNull()
+		.default(false),
 	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
 	listName: text('list_name'),
 	listId: text('list_id'),

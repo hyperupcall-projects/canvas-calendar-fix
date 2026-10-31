@@ -71,10 +71,7 @@ describe('DashboardPage', () => {
 		assert.ok(firstRemove < secondStart)
 		assert.match(html.slice(0, secondStart), /name="canvasLink" checked=""/)
 		assert.match(html.slice(secondStart), /name="canvasLink"/)
-		assert.doesNotMatch(
-			html.slice(secondStart),
-			/name="canvasLink" checked=""/,
-		)
+		assert.doesNotMatch(html.slice(secondStart), /name="canvasLink" checked=""/)
 	})
 
 	it('lets you add a second calendar but not remove the last one', async () => {
@@ -200,7 +197,10 @@ describe('DashboardPage', () => {
 		)
 		const html = await Promise.resolve(String(node))
 		assert.match(html, /action="\/dashboard\/google\/connect\?beta=true"/)
-		assert.doesNotMatch(html, /action="\/dashboard\/google\/settings/)
+		assert.doesNotMatch(
+			html,
+			/action="\/dashboard\/outputs\/out-1\/google\/settings/,
+		)
 	})
 
 	it('shows the Google Tasks controls, list picker and due offset when connected', async () => {
@@ -214,28 +214,31 @@ describe('DashboardPage', () => {
 						id: 'out-1',
 						name: 'Calendar 1',
 						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+						googleTasks: {
+							enabled: true,
+							listName: 'Homework',
+							dueOffsetDays: 3,
+							skipOlderThanDays: 2,
+							lastSyncAt: new Date('2026-09-07T19:30:00.000Z'),
+							lastSyncError: null,
+						},
 					}),
 				]}
 				googleConfigured
 				googleConnected
 				beta
-				googleTasks={{
-					enabled: true,
-					listName: 'Homework',
-					dueOffsetDays: 3,
-					skipOlderThanDays: 2,
-					lastSyncAt: new Date('2026-09-07T19:30:00.000Z'),
-					lastSyncError: null,
-				}}
 				taskListNames={['Homework', 'TA']}
 			/>
 		)
 		const html = await Promise.resolve(String(node))
-		assert.match(html, /action="\/dashboard\/google\/settings\?beta=true"/)
+		assert.match(
+			html,
+			/action="\/dashboard\/outputs\/out-1\/google\/settings\?beta=true"/,
+		)
 		assert.match(html, /name="enabled" checked=""/)
 		assert.match(html, /name="listName"[^>]*value="Homework"/)
-		assert.match(html, /list="google-task-lists"/)
-		assert.match(html, /<datalist id="google-task-lists">/)
+		assert.match(html, /list="google-task-lists-out-1"/)
+		assert.match(html, /<datalist id="google-task-lists-out-1">/)
 		assert.match(html, /<option value="TA">TA<\/option>/)
 		// The configured offset is the selected one, out of the 1-14 range.
 		assert.match(html, /value="3" selected/)
@@ -243,8 +246,14 @@ describe('DashboardPage', () => {
 		assert.match(html, /name="skipOlderThanDays"/)
 		assert.match(html, /<option value="2" selected="">2 days<\/option>/)
 		assert.match(html, /Last synced: Sep 7, 2026/)
-		assert.match(html, /action="\/dashboard\/google\/sync\?beta=true"/)
-		assert.match(html, /action="\/dashboard\/google\/refresh\?beta=true"/)
+		assert.match(
+			html,
+			/action="\/dashboard\/outputs\/out-1\/google\/sync\?beta=true"/,
+		)
+		assert.match(
+			html,
+			/action="\/dashboard\/outputs\/out-1\/google\/refresh\?beta=true"/,
+		)
 		assert.match(html, /action="\/dashboard\/google\/disconnect\?beta=true"/)
 	})
 
@@ -259,26 +268,28 @@ describe('DashboardPage', () => {
 						id: 'out-1',
 						name: 'Calendar 1',
 						feedUrl: 'http://localhost:3000/feed/secret-token.ics',
+						googleTasks: {
+							enabled: false,
+							listName: null,
+							dueOffsetDays: 7,
+							skipOlderThanDays: 1,
+							lastSyncAt: null,
+							lastSyncError: 'Google Tasks returned HTTP 403.',
+						},
 					}),
 				]}
 				googleConfigured
 				googleConnected
 				beta
-				googleTasks={{
-					enabled: false,
-					listName: null,
-					dueOffsetDays: 7,
-					skipOlderThanDays: 1,
-					lastSyncAt: null,
-					lastSyncError: 'Google Tasks returned HTTP 403.',
-				}}
 			/>
 		)
 		const html = await Promise.resolve(String(node))
 		assert.match(html, /Last Google Tasks sync failed: Google Tasks returned/)
 		assert.doesNotMatch(html, /name="enabled" checked=""/)
 		assert.doesNotMatch(html, /name="listName"/)
-		const syncIndex = html.indexOf('action="/dashboard/google/sync?beta=true"')
+		const syncIndex = html.indexOf(
+			'action="/dashboard/outputs/out-1/google/sync?beta=true"',
+		)
 		const syncForm = html.slice(syncIndex, html.indexOf('</form>', syncIndex))
 		assert.match(syncForm, /disabled=""/)
 	})

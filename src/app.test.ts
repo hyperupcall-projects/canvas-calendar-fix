@@ -41,7 +41,10 @@ describe('http routes', () => {
 			headers: { 'content-type': 'application/x-www-form-urlencoded' },
 		})
 		assert.equal(response.status, 400)
-		assert.match(await response.text(), /You must sign in with your school account/)
+		assert.match(
+			await response.text(),
+			/You must sign in with your school account/,
+		)
 	})
 
 	it('points an unsupported .edu address at the support group', async () => {
@@ -53,10 +56,7 @@ describe('http routes', () => {
 		assert.equal(response.status, 400)
 		const html = await response.text()
 		assert.match(html, /support your school yet/)
-		assert.match(
-			html,
-			/groups\.google\.com\/g\/canvas-calendar-fix-support/,
-		)
+		assert.match(html, /groups\.google\.com\/g\/canvas-calendar-fix-support/)
 	})
 
 	it('redirects anonymous admin visits to the admin login', async () => {
@@ -303,8 +303,7 @@ describe('http routes', () => {
 			await db.insert(calendars).values({
 				id: calendarId,
 				userId,
-				sourceUrl:
-					'https://csumb.instructure.com/feeds/calendars/user_add.ics',
+				sourceUrl: 'https://csumb.instructure.com/feeds/calendars/user_add.ics',
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -395,8 +394,8 @@ describe('http routes', () => {
 	it('redirects anonymous Google attempts to sign-in', async () => {
 		for (const path of [
 			'/dashboard/google/connect',
-			'/dashboard/google/settings',
-			'/dashboard/google/sync',
+			'/dashboard/outputs/test-output/google/settings',
+			'/dashboard/outputs/test-output/google/sync',
 			'/dashboard/google/disconnect',
 		]) {
 			const response = await app.request(path, { method: 'POST' })
@@ -444,7 +443,7 @@ describe('http routes', () => {
 			assert.doesNotMatch(await page.text(), /Google Tasks/)
 
 			const response = await app.request(
-				'/dashboard/google/settings?beta=true',
+				'/dashboard/outputs/test-output/google/settings?beta=true',
 				{ method: 'POST', headers: { cookie } },
 			)
 			assert.equal(response.status, 302)
