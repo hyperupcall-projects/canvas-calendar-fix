@@ -31,6 +31,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
  * so automatic runs are spaced out. The manual Sync now / Refresh ignore this.
  */
 const MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000
+const MAX_CONCURRENT_TASK_WRITES = 10
 
 const localFormatter = new Intl.DateTimeFormat('en-US', {
 	timeZone: TASK_TIMEZONE,
@@ -287,6 +288,36 @@ type SyncCounts = {
 }
 
 /**
+ * Drain each batch before reporting errors or releasing the sync lock. A failed
+ * batch stops further writes; successful writes are reconciled on the next run.
+ * Do not blindly retry inserts: a lost response can still mean Google created it.
+ */
+async function runTaskWrites(writes: Array<() => Promise<void>>): Promise<void> {
+	for (let i = 0; i < writes.length; i += MAX_CONCURRENT_TASK_WRITES) {
+		const results = await Promise.allSettled(
+			writes.slice(i, i + MAX_CONCURRENT_TASK_WRITES).map(async (write) => write()),
+		)
+		const failures = results.filter(
+			(result): result is PromiseRejectedResult => result.status === 'rejected',
+		)
+		if (failures.length > 0) {
+			const reasons = failures.map((failure) => failure.reason)
+			const messages = [
+				...new Set(
+					reasons.map((reason: unknown) =>
+						reason instanceof Error ? reason.message : String(reason),
+					),
+				),
+			]
+			throw new AggregateError(
+				reasons,
+				`${failures.length} Google Tasks request(s) failed: ${messages.join('; ')}`,
+			)
+		}
+	}
+}
+
+/**
  * Mirrors the feed into the task list. Every recent event in an enabled course
  * becomes a task. The marker in each task's notes is the join key, so a task
  * that already exists is compared against the assignment it maps to and moved
@@ -374,15 +405,18 @@ async function runSync(
 	}
 
 	const counts: SyncCounts = { added: 0, updated: 0, removed: 0, skipped: 0 }
+	const writes: Array<() => Promise<void>> = []
 
 	for (const [uid, event] of assignments) {
 		const existing = liveByUid.get(uid)
 		const old = isOlderThan(event, settings.skipOlderThanDays, options.now)
 		if (options.recreate && old) {
 			if (existing?.id) {
-				await deleteTask(accessToken, list.id, existing.id)
+				writes.push(async () => {
+					await deleteTask(accessToken, list.id, existing.id)
+					counts.removed += 1
+				})
 				liveByUid.delete(uid)
-				counts.removed += 1
 			} else {
 				counts.skipped += 1
 			}
@@ -402,8 +436,10 @@ async function runSync(
 				counts.skipped += 1
 				continue
 			}
-			await insertTask(accessToken, list.id, desired)
-			counts.added += 1
+			writes.push(async () => {
+				await insertTask(accessToken, list.id, desired)
+				counts.added += 1
+			})
 			continue
 		}
 		liveByUid.delete(uid)
@@ -412,8 +448,10 @@ async function runSync(
 			!sameDue(existing.due, desired.due) ||
 			existing.notes !== desired.notes
 		if (changed) {
-			await patchTask(accessToken, list.id, existing.id, desired)
-			counts.updated += 1
+			writes.push(async () => {
+				await patchTask(accessToken, list.id, existing.id, desired)
+				counts.updated += 1
+			})
 		} else {
 			counts.skipped += 1
 		}
@@ -424,9 +462,13 @@ async function runSync(
 		if (!task.id) {
 			continue
 		}
-		await deleteTask(accessToken, list.id, task.id)
-		counts.removed += 1
+		writes.push(async () => {
+			await deleteTask(accessToken, list.id, task.id)
+			counts.removed += 1
+		})
 	}
+
+	await runTaskWrites(writes)
 
 	await db
 		.update(googleTasksSettings)

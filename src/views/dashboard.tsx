@@ -120,14 +120,13 @@ export function DashboardPage(props: {
 			{props.googleConfigured && beta ? (
 				<section>
 					<h2>Google Tasks</h2>
+					<p>
+						Connect to Google so that assignments can be createad as
+						Google Tasks. The content and dates of Google Tasks are
+						automatically updated if they are changed on Canvas.
+					</p>
 					{props.googleConnected ? (
 						<>
-							<p>
-								Connected. Configure Google Tasks separately under each output
-								calendar. Tasks follow the feed: they are created, moved and
-								removed as events change, and any task you delete in Google
-								Tasks is left deleted.
-							</p>
 							<form
 								method="post"
 								action={`/dashboard/google/disconnect${betaQuery}`}
@@ -138,34 +137,18 @@ export function DashboardPage(props: {
 								</button>
 							</form>
 							<p class="form-hint">
-								Disconnecting deletes the access this app has stored and stops
-								all syncing. Task lists and tasks already created stay in your
-								Google account. To also remove this app's access on Google's
-								side, visit{' '}
-								<a
-									href="https://myaccount.google.com/permissions"
-									target="_blank"
-									rel="noreferrer"
-								>
-									your Google account permissions
-								</a>
-								.
+								Disconnecting stops all syncing. Existing tasks created by this
+								app will continue to exist.
 							</p>
 						</>
 					) : (
 						<>
-							<p>
-								Connect a Google account to mirror recent Canvas events in your
-								enabled courses into Google Tasks. Each task keeps its full
-								deadline in its notes and is due ahead of time, and tasks are
-								created, moved and removed to match your Canvas feed.
-							</p>
 							<form
 								method="post"
 								action={`/dashboard/google/connect${betaQuery}`}
 							>
 								<button type="submit" class="pure-button pure-button-primary">
-									Connect with Google Calendar
+									Connect with Google Tasks
 								</button>
 							</form>
 						</>
@@ -424,8 +407,7 @@ export function DashboardPage(props: {
 														Sync runs automatically when this output calendar is
 														fetched. Sync preserves completed and deleted tasks.
 														Refresh restores deleted tasks and removes tasks
-														older than the skip threshold. These actions affect
-														only this output calendar.
+														older than the skip threshold.
 													</p>{' '}
 												</>
 											) : (

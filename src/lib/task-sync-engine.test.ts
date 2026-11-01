@@ -591,3 +591,146 @@ describe('output calendar isolation', () => {
 		}
 	})
 })
+
+function manyEvents(count: number, start = 0, prefix = 'Assignment'): string[] {
+	return Array.from({ length: count }, (_, index) =>
+		vevent([
+			`UID:parallel-${start + index}`,
+			'DTSTART:20260903T065900Z',
+			'DTEND:20260903T065900Z',
+			`SUMMARY:${prefix} ${start + index} [CST463-01_2264]`,
+		]),
+	)
+}
+
+function deferred() {
+	let resolve!: () => void
+	const promise = new Promise<void>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
+}
+
+function isTaskWrite(input: unknown, init?: RequestInit): boolean {
+	return (
+		/\/lists\/[^/]+\/tasks(?:\/[^/?]+)?$/.test(String(input)) &&
+		['POST', 'PATCH', 'DELETE'].includes(init?.method ?? 'GET')
+	)
+}
+
+describe('concurrent task writes', () => {
+	it('limits inserts, updates and deletes to ten concurrent requests across multiple batches', async () => {
+		await db
+			.update(googleTasksSettings)
+			.set({ enabled: true, listId: null, dismissed: '[]' })
+			.where(eq(googleTasksSettings.outputCalendarId, outputId))
+		lists.clear()
+		feed = calendarFeed(manyEvents(20))
+		clearSourceCache()
+		const fakeFetch = globalThis.fetch
+		let active = 0
+		let peak = 0
+		const methods: string[] = []
+		globalThis.fetch = (async (input, init) => {
+			if (!isTaskWrite(input, init)) return fakeFetch(input, init)
+			active += 1
+			peak = Math.max(peak, active)
+			methods.push(init!.method!)
+			try {
+				await new Promise<void>((resolve) => setImmediate(resolve))
+				return await fakeFetch(input, init)
+			} finally {
+				active -= 1
+			}
+		}) as typeof fetch
+		try {
+			const initial = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+			assert.ok(initial.ok && initial.added === 20)
+			assert.equal(peak, 10)
+			methods.length = 0
+			peak = 0
+			// Update ten, insert fifteen, and delete the ten absent from this feed.
+			feed = calendarFeed([...manyEvents(10, 0, 'Renamed'), ...manyEvents(15, 20)])
+			clearSourceCache()
+			const result = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+			assert.deepEqual(result, {
+				ok: true,
+				added: 15,
+				updated: 10,
+				removed: 10,
+				skipped: 0,
+			})
+			assert.equal(peak, 10)
+			assert.equal(active, 0)
+			assert.equal(methods.filter((method) => method === 'POST').length, 15)
+			assert.equal(methods.filter((method) => method === 'PATCH').length, 10)
+			assert.equal(methods.filter((method) => method === 'DELETE').length, 10)
+			assert.equal(taskTitles().length, 25)
+		} finally {
+			globalThis.fetch = fakeFetch
+		}
+	})
+
+	it('drains a failed batch, keeps the lock, records all errors and reconciles on retry', async () => {
+		await db
+			.update(googleTasksSettings)
+			.set({ listId: null, dismissed: '[]', lastSyncAt: TWO_DAYS_LATER })
+			.where(eq(googleTasksSettings.outputCalendarId, outputId))
+		lists.clear()
+		feed = calendarFeed(manyEvents(25))
+		clearSourceCache()
+		const fakeFetch = globalThis.fetch
+		const started = deferred()
+		const release = deferred()
+		let writes = 0
+		let finished = false
+		globalThis.fetch = (async (input, init) => {
+			if (!isTaskWrite(input, init)) return fakeFetch(input, init)
+			writes += 1
+			if (writes === 10) started.resolve()
+			if (writes === 1) return new Response('server error', { status: 500 })
+			if (writes === 2) {
+				// Google committed this insert, but its response never reached us.
+				await fakeFetch(input, init)
+				throw new Error('Network disconnected')
+			}
+			await release.promise
+			return fakeFetch(input, init)
+		}) as typeof fetch
+		const pending = syncGoogleTasks(userId, outputId, { now: TEST_NOW }).then(
+			(result) => {
+				finished = true
+				return result
+			},
+		)
+		try {
+			await started.promise
+			// Let both failures propagate while the other eight writes are held.
+			await new Promise<void>((resolve) => setImmediate(resolve))
+			assert.equal(finished, false)
+			const overlapping = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+			assert.deepEqual(overlapping, { ok: false, message: 'A sync is already running.' })
+			release.resolve()
+			const result = await pending
+			assert.equal(result.ok, false)
+			if (result.ok) assert.fail('expected failed sync')
+			assert.match(result.message, /2 Google Tasks request\(s\) failed/)
+			assert.match(result.message, /HTTP 500/)
+			assert.match(result.message, /Network disconnected/)
+			assert.equal(writes, 10, 'later batches must not start after failure')
+			assert.equal(taskTitles().length, 9)
+			const row = await settingsRow()
+			assert.equal(row?.lastSyncError, result.message)
+			assert.equal(row?.lastSyncAt?.getTime(), TWO_DAYS_LATER.getTime())
+			globalThis.fetch = fakeFetch
+			const retry = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+			assert.deepEqual(retry, { ok: true, added: 16, updated: 0, removed: 0, skipped: 9 })
+			assert.equal(taskTitles().length, 25)
+			assert.equal((await settingsRow())?.lastSyncError, null)
+		} finally {
+			release.resolve()
+			await pending
+			globalThis.fetch = fakeFetch
+		}
+	})
+})
