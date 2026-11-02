@@ -12,8 +12,14 @@ const { app } = await import('./app.tsx')
 const { auth } = await import('./auth.ts')
 const { db } = await import('./db/index.ts')
 const { account, session, user } = await import('./db/auth-schema.ts')
-const { googleTasksSettings, calendars, outputCalendars } =
-	await import('./db/schema.ts')
+const {
+	calendars,
+	courses,
+	googleTasksSettings,
+	outputCalendarCourses,
+	outputCalendars,
+} = await import('./db/schema.ts')
+const { parseCalendar } = await import('./lib/ics.ts')
 const { env } = await import('./env.ts')
 
 const realFetch = globalThis.fetch
@@ -110,9 +116,11 @@ describe('google tasks routes', () => {
 				]),
 			)
 			assert.equal(response.status, 302)
-			assert.equal(
-				response.headers.get('location'),
-				'/dashboard?gtasks=1&beta=true',
+			// Saving also syncs. This user has no Google account, so the sync fails,
+			// and the redirect says the settings were still saved.
+			assert.match(
+				decodeURIComponent(response.headers.get('location') ?? ''),
+				/error=Settings saved, but: Connect a Google account first\./,
 			)
 
 			const [row] = await db
@@ -132,13 +140,18 @@ describe('google tasks routes', () => {
 	it('clamps out-of-range settings and defaults the toggle to off', async () => {
 		const { userId, outputId, cookie } = await makeUser('gclamp')
 		try {
-			await postSettings(
+			const response = await postSettings(
 				cookie,
 				outputId,
 				new URLSearchParams([
 					['dueOffsetDays', '99'],
 					['skipOlderThanDays', '99'],
 				]),
+			)
+			// Nothing to sync while disabled, so this is a plain save.
+			assert.equal(
+				response.headers.get('location'),
+				'/dashboard?gtasks=1&beta=true',
 			)
 			const [row] = await db
 				.select()
@@ -261,6 +274,85 @@ describe('google tasks routes', () => {
 	})
 })
 
+describe('feed event metadata', () => {
+	const ICS = [
+		'BEGIN:VCALENDAR',
+		'VERSION:2.0',
+		'BEGIN:VEVENT',
+		'UID:event-done',
+		'DTSTART:20260903T065900Z',
+		'DTEND:20260903T065900Z',
+		'SUMMARY:Done [CST463-01_2264]',
+		'DESCRIPTION:Read chapter 1',
+		'END:VEVENT',
+		'BEGIN:VEVENT',
+		'UID:event-open',
+		'DTSTART:20260903T065900Z',
+		'DTEND:20260903T065900Z',
+		'SUMMARY:Open [CST463-01_2264]',
+		'END:VEVENT',
+		'END:VCALENDAR',
+	].join('\r\n')
+
+	async function feedFor(enabled: boolean) {
+		const { userId, outputId } = await makeUser(`gfeed${enabled}`)
+		const token = crypto.randomUUID()
+		const sourceUrl = `https://csumb.instructure.com/feeds/calendars/user_${token}.ics`
+		const [output] = await db
+			.update(outputCalendars)
+			.set({ publicToken: token })
+			.where(eq(outputCalendars.id, outputId))
+			.returning()
+		await db
+			.update(calendars)
+			.set({ sourceUrl })
+			.where(eq(calendars.id, output.calendarId))
+		const courseId = crypto.randomUUID()
+		await db
+			.insert(courses)
+			.values({ id: courseId, calendarId: output.calendarId, code: 'CST463-01_2264' })
+		await db
+			.insert(outputCalendarCourses)
+			.values({ outputCalendarId: outputId, courseId })
+		await db.insert(googleTasksSettings).values({
+			outputCalendarId: outputId,
+			userId,
+			// Recent, so the feed's background sync stays out of the way.
+			lastSyncAt: new Date(),
+			enabled,
+			taskStatuses: '{"event-done":"completed"}',
+		})
+		const stashed = globalThis.fetch
+		globalThis.fetch = (async () =>
+			new Response(ICS, { status: 200 })) as typeof globalThis.fetch
+		try {
+			const response = await app.request(`/feed/${token}.ics`)
+			assert.equal(response.status, 200)
+			return parseCalendar(await response.text())
+		} finally {
+			globalThis.fetch = stashed
+			await db.delete(user).where(eq(user.id, userId))
+		}
+	}
+
+	it('writes each event status at the bottom of its description', async () => {
+		const events = await feedFor(true)
+		const done = events.find((event) => event.uid === 'event-done')
+		const open = events.find((event) => event.uid === 'event-open')
+		assert.equal(
+			done?.description,
+			'Read chapter 1\n\n---\nuid:event-done;status:completed',
+		)
+		assert.equal(open?.description, '---\nuid:event-open;status:open')
+	})
+
+	it('adds nothing when Google Tasks sync is off', async () => {
+		const events = await feedFor(false)
+		const done = events.find((event) => event.uid === 'event-done')
+		assert.equal(done?.description, 'Read chapter 1')
+	})
+})
+
 describe('per-output Google Tasks access', () => {
 	it('saves independent settings, preserves disabled options, and rejects another user’s output', async () => {
 		const first = await makeUser('first-output')
@@ -315,12 +407,17 @@ describe('per-output Google Tasks access', () => {
 			assert.equal(primary?.skipOlderThanDays, 4)
 			assert.equal(second?.enabled, true)
 			assert.equal(second?.dueOffsetDays, 9)
-			for (const action of ['settings', 'sync', 'refresh']) {
-				const response = await app.request(
-					`/dashboard/outputs/${secondId}/google/${action}?beta=true`,
-					{ method: 'POST', headers: { cookie: stranger.cookie } },
+			const response = await app.request(
+				`/dashboard/outputs/${secondId}/google/settings?beta=true`,
+				{ method: 'POST', headers: { cookie: stranger.cookie } },
+			)
+			assert.match(response.headers.get('location') ?? '', /not%20found/)
+			for (const removed of ['sync', 'refresh']) {
+				const gone = await app.request(
+					`/dashboard/outputs/${secondId}/google/${removed}?beta=true`,
+					{ method: 'POST', headers: { cookie: first.cookie } },
 				)
-				assert.match(response.headers.get('location') ?? '', /not%20found/)
+				assert.equal(gone.status, 404)
 			}
 			assert.deepEqual(
 				await db

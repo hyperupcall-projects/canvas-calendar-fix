@@ -234,11 +234,29 @@ function withCanvasLink(event: ParsedEvent): string | undefined {
 	return event.description ? `${event.url}\n\n${event.description}` : event.url
 }
 
+/**
+ * Appends metadata as the last two lines of a description: `---`, then
+ * `key:value;key2:value`. Separators inside a value are percent-encoded.
+ */
+export function withEventMetadata(
+	description: string | undefined,
+	metadata: Record<string, string>,
+): string {
+	const line = Object.entries(metadata)
+		.map(
+			([key, value]) =>
+				`${key}:${value.replace(/[%:;\r\n]/g, encodeURIComponent)}`,
+		)
+		.join(';')
+	return description ? `${description}\n\n---\n${line}` : `---\n${line}`
+}
+
 export function buildFilteredCalendar(
 	events: ParsedEvent[],
 	enabledCodes: ReadonlySet<string>,
 	calendarName = 'Canvas (filtered)',
 	addCanvasLink = false,
+	metadataFor?: (event: ParsedEvent) => Record<string, string> | undefined,
 ): string {
 	const calendar = icalGenerator({
 		name: calendarName,
@@ -252,13 +270,17 @@ export function buildFilteredCalendar(
 		if (!event.courseCode || !enabledCodes.has(event.courseCode)) {
 			continue
 		}
+		const description = addCanvasLink ? withCanvasLink(event) : event.description
+		const metadata = metadataFor?.(event)
 		calendar.createEvent({
 			id: event.uid.length > 0 ? event.uid : crypto.randomUUID(),
 			start: event.start,
 			end: event.end,
 			allDay: event.allDay,
 			summary: event.summary,
-			description: addCanvasLink ? withCanvasLink(event) : event.description,
+			description: metadata
+				? withEventMetadata(description, metadata)
+				: description,
 			url: event.url,
 		})
 	}

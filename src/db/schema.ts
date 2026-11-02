@@ -15,14 +15,16 @@ export const DEFAULT_DUE_OFFSET_DAYS = 7
 export const MIN_DUE_OFFSET_DAYS = 0
 export const MAX_DUE_OFFSET_DAYS = 14
 
-// A normal sync will not add a task whose Canvas deadline is older than this
-// many days. Tasks already in the list are kept regardless of age, while
-// Refresh removes old tasks instead of rebuilding them.
+// A sync will not add a task whose Canvas deadline is older than this many days.
+// An automatic sync keeps tasks already in the list regardless of age, while
+// Save & Sync deletes them.
 export const DEFAULT_SKIP_OLDER_THAN_DAYS = 1
 export const MIN_SKIP_OLDER_THAN_DAYS = 1
 export const MAX_SKIP_OLDER_THAN_DAYS = 30
 
 export const DEFAULT_TASK_LIST_NAME = 'Canvas Assignments'
+
+export type TaskStatus = 'completed' | 'deleted'
 
 export const calendars = sqliteTable('calendars', {
 	id: text('id').primaryKey(),
@@ -107,9 +109,9 @@ export const googleTasksSettings = sqliteTable('google_tasks_settings', {
 	skipOlderThanDays: integer('skip_older_than_days')
 		.notNull()
 		.default(DEFAULT_SKIP_OLDER_THAN_DAYS),
-	// JSON array of Canvas uids whose tasks the user deleted in Google, so they
-	// are not put back. Cleared by the Refresh action.
-	dismissed: text('dismissed').notNull().default('[]'),
+	// JSON object of Canvas uid to TaskStatus. The feed reads this to write each
+	// event's metadata, and it keeps a status after its Google task is removed.
+	taskStatuses: text('task_statuses').notNull().default('{}'),
 	lastSyncAt: integer('last_sync_at', { mode: 'timestamp' }),
 	lastSyncError: text('last_sync_error'),
 })

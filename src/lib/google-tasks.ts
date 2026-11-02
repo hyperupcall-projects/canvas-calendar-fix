@@ -23,6 +23,7 @@ export type GoogleTaskInput = {
 	title: string
 	due?: string
 	notes?: string
+	status?: 'completed'
 }
 
 export class GoogleTasksError extends Error {
@@ -243,12 +244,12 @@ export async function insertTask(
 	return created.id
 }
 
-/** Used when an assignment is renamed or rescheduled and the task must follow. */
+/** Used when a task must follow its assignment, or be stamped before removal. */
 export async function patchTask(
 	accessToken: string,
 	listId: string,
 	taskId: string,
-	task: GoogleTaskInput,
+	task: Partial<GoogleTaskInput>,
 ): Promise<void> {
 	await request(
 		accessToken,
@@ -257,7 +258,7 @@ export async function patchTask(
 	)
 }
 
-/** Used when an assignment disappears from the feed. */
+/** Used when an assignment leaves the feed or passes the skip threshold. */
 export async function deleteTask(
 	accessToken: string,
 	listId: string,

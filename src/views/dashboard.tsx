@@ -289,80 +289,76 @@ export function DashboardPage(props: {
 															/>{' '}
 															Enable Google Tasks sync
 														</label>
-														{googleTasks.enabled ? (
-															<>
-																<label style="margin-top:0.5em">
-																	Task list (category)
-																	<input
-																		class="pure-input-1"
-																		type="text"
-																		name="listName"
-																		maxlength={80}
-																		value={googleTasks.listName ?? ''}
-																		placeholder={DEFAULT_TASK_LIST_NAME}
-																		list={`google-task-lists-${output.id}`}
-																	/>
-																</label>
-																<datalist id={`google-task-lists-${output.id}`}>
-																	{taskListNames.map((name) => (
-																		<option value={name}>{name}</option>
-																	))}
-																</datalist>
-																<label style="margin-top:0.5em">
-																	Due date (days before the deadline)
-																	<select
-																		name="dueOffsetDays"
-																		class="pure-input-1"
+														<label style="margin-top:0.5em">
+															Task list (category)
+															<input
+																class="pure-input-1"
+																type="text"
+																name="listName"
+																maxlength={80}
+																value={googleTasks.listName ?? ''}
+																placeholder={DEFAULT_TASK_LIST_NAME}
+																list={`google-task-lists-${output.id}`}
+															/>
+														</label>
+														<datalist id={`google-task-lists-${output.id}`}>
+															{taskListNames.map((name) => (
+																<option value={name}>{name}</option>
+															))}
+														</datalist>
+														<label style="margin-top:0.5em">
+															Due date (days before the deadline)
+															<select
+																name="dueOffsetDays"
+																class="pure-input-1"
+															>
+																{dueOffsetOptions().map((days) => (
+																	<option
+																		value={String(days)}
+																		selected={
+																			days === googleTasks.dueOffsetDays
+																		}
 																	>
-																		{dueOffsetOptions().map((days) => (
-																			<option
-																				value={String(days)}
-																				selected={
-																					days === googleTasks.dueOffsetDays
-																				}
-																			>
-																				{days}
-																			</option>
-																		))}
-																	</select>
-																</label>
-																<label style="margin-top:0.5em">
-																	Skip tasks older than
-																	<select
-																		name="skipOlderThanDays"
-																		class="pure-input-1"
+																		{days}
+																	</option>
+																))}
+															</select>
+														</label>
+														<label style="margin-top:0.5em">
+															Skip tasks older than
+															<select
+																name="skipOlderThanDays"
+																class="pure-input-1"
+															>
+																{skipOlderThanOptions().map((days) => (
+																	<option
+																		value={String(days)}
+																		selected={
+																			days === googleTasks.skipOlderThanDays
+																		}
 																	>
-																		{skipOlderThanOptions().map((days) => (
-																			<option
-																				value={String(days)}
-																				selected={
-																					days === googleTasks.skipOlderThanDays
-																				}
-																			>
-																				{days} {days === 1 ? 'day' : 'days'}
-																			</option>
-																		))}
-																	</select>
-																</label>
-																<p class="form-hint">
-																	Tasks whose Canvas deadline was more than this
-																	many days ago are not added. Sync keeps tasks
-																	already in the list; Refresh removes them.
-																</p>
-																<p class="form-hint">
-																	Each task keeps its full deadline (time
-																	included) in its notes; its due date is set
-																	this many days earlier so it can surface on
-																	your calendar ahead of the assignment.
-																</p>
-															</>
-														) : null}
+																		{days} {days === 1 ? 'day' : 'days'}
+																	</option>
+																))}
+															</select>
+														</label>
+														<p class="form-hint">
+															Tasks whose Canvas deadline was more than this
+															many days ago are not added, and Save &amp; Sync
+															deletes them from the list.
+														</p>
+														<p class="form-hint">
+															Each task keeps its full deadline (time
+															included) in its notes; its due date is set
+															this many days earlier so it can surface on
+															your calendar ahead of the assignment.
+														</p>
 														<div class="form-actions">
 															<button
 																type="submit"
 																class="pure-button pure-button-primary"
 															>
-																Save Google Tasks settings
+																Save &amp; Sync
 															</button>
 														</div>
 													</form>
@@ -377,38 +373,13 @@ export function DashboardPage(props: {
 															message={`Last Google Tasks sync failed: ${googleTasks.lastSyncError}`}
 														/>
 													) : null}
-													<form
-														method="post"
-														action={`/dashboard/outputs/${output.id}/google/sync${betaQuery}`}
-														style="margin-top:0.5em"
-													>
-														<button
-															type="submit"
-															class="pure-button"
-															disabled={!googleTasks.enabled}
-														>
-															Sync
-														</button>
-													</form>
-													<form
-														method="post"
-														action={`/dashboard/outputs/${output.id}/google/refresh${betaQuery}`}
-														style="margin-top:0.5em"
-													>
-														<button
-															type="submit"
-															class="pure-button"
-															disabled={!googleTasks.enabled}
-														>
-															Refresh
-														</button>
-													</form>
 													<p class="form-hint">
-														Sync runs automatically when this output calendar is
-														fetched. Sync preserves completed and deleted tasks.
-														Refresh restores deleted tasks and removes tasks
-														older than the skip threshold.
-													</p>{' '}
+														Save &amp; Sync also moves tasks to their new due date and
+														adds any that are missing. Tasks you delete stay deleted,
+														and completed tasks stay completed. Sync also runs
+														automatically when this output calendar is fetched, but
+														that only adds and updates tasks.
+													</p>
 												</>
 											) : (
 												<p>

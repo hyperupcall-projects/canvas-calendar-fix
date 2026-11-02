@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import {
 	assignmentPageUrl,
 	buildFilteredCalendar,
+	withEventMetadata,
 	collectCourseCodes,
 	extractCourseCode,
 	parseCalendar,
@@ -84,6 +85,23 @@ function eventBlock(ics: string, uid: string): string {
 	assert.ok(match, `missing event ${uid}`)
 	return match[0].replace(/\r\n /g, '')
 }
+
+describe('withEventMetadata', () => {
+	it('puts the separator and metadata on the last two lines', () => {
+		assert.equal(
+			withEventMetadata('Read chapter 1', { uid: 'a', status: 'open' }),
+			'Read chapter 1\n\n---\nuid:a;status:open',
+		)
+		assert.equal(withEventMetadata(undefined, { uid: 'a' }), '---\nuid:a')
+	})
+
+	it('encodes separators inside a value', () => {
+		assert.equal(
+			withEventMetadata(undefined, { uid: 'a;b:c%' }),
+			'---\nuid:a%3Bb%3Ac%25',
+		)
+	})
+})
 
 describe('buildFilteredCalendar', () => {
 	it('omits disabled courses and events without a course code', () => {

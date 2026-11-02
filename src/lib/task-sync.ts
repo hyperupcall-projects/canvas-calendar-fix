@@ -8,6 +8,7 @@ import {
 	googleTasksSettings,
 	outputCalendarCourses,
 	resolveTaskListName,
+	type TaskStatus,
 } from '../db/schema.ts'
 import { googleConfigured } from '../env.ts'
 import {
@@ -28,7 +29,7 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
 
 /**
  * Feed fetches drive syncing, and a calendar app may poll every few minutes,
- * so automatic runs are spaced out. The manual Sync now / Refresh ignore this.
+ * so automatic runs are spaced out. The manual Save & Sync ignores this.
  */
 const MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000
 const MAX_CONCURRENT_TASK_WRITES = 10
@@ -105,6 +106,7 @@ export function taskDeadline(event: ParsedEvent): string {
 }
 
 const UID_MARKER = /\[canvas:([^\]\s]+)\]/
+const REMOVED_BY_SYNC_MARKER = '[canvas-removed]'
 
 /**
  * Google rejects a task whose title or notes exceed these lengths with a 400,
@@ -154,6 +156,11 @@ export function taskNotes(
 	const description = event.description ?? ''
 	const body = budget > 0 ? description.slice(0, budget) : ''
 	return body.length > 0 ? `${head}\n\n${body}${marker}` : `${head}${marker}`
+}
+
+/** The notes of a task about to be deleted by a sync, not by the user. */
+function removedTaskNotes(uid: string, outputCalendarId: string): string {
+	return `[canvas-output:${outputCalendarId}]\n${taskMarker(uid)}\n${REMOVED_BY_SYNC_MARKER}`
 }
 
 export type SyncResult =
@@ -258,24 +265,45 @@ function sameDue(remote: string | undefined, desired: string): boolean {
 	return (remote ?? '').slice(0, 10) === desired.slice(0, 10)
 }
 
-function parseDismissed(value: string | null): Set<string> {
-	if (!value) {
-		return new Set()
-	}
+/**
+ * What this app knows about each task, keyed by Canvas uid. A task with no entry
+ * is still open. This outlives the Google task, so a completed task that aged out
+ * of the skip threshold can come back completed if the threshold is widened.
+ */
+export function parseTaskStatuses(value: string | null): Map<string, TaskStatus> {
+	const statuses = new Map<string, TaskStatus>()
 	try {
-		const parsed: unknown = JSON.parse(value)
-		return Array.isArray(parsed)
-			? new Set(
-					parsed.filter((item): item is string => typeof item === 'string'),
-				)
-			: new Set()
+		const parsed: unknown = JSON.parse(value ?? '{}')
+		if (parsed && typeof parsed === 'object') {
+			for (const [uid, status] of Object.entries(parsed)) {
+				if (status === 'completed' || status === 'deleted') {
+					statuses.set(uid, status)
+				}
+			}
+		}
 	} catch {
-		return new Set()
+		// A malformed value is treated as no known statuses.
 	}
+	return statuses
 }
 
-function serializeDismissed(uids: ReadonlySet<string>): string {
-	return JSON.stringify([...uids])
+function serializeTaskStatuses(statuses: ReadonlyMap<string, TaskStatus>): string {
+	return JSON.stringify(Object.fromEntries(statuses))
+}
+
+/**
+ * The metadata for each feed event. The feed cannot wait on Google, so it reports
+ * the statuses recorded by the most recent sync. Events without a uid never get a
+ * task, so they carry no metadata.
+ */
+export function taskEventMetadata(
+	storedStatuses: string,
+): (event: ParsedEvent) => Record<string, string> | undefined {
+	const statuses = parseTaskStatuses(storedStatuses)
+	return (event) =>
+		event.uid.length > 0
+			? { uid: event.uid, status: statuses.get(event.uid) ?? 'open' }
+			: undefined
 }
 
 type SettingsRow = NonNullable<Awaited<ReturnType<typeof loadSettings>>>
@@ -322,17 +350,17 @@ async function runTaskWrites(writes: Array<() => Promise<void>>): Promise<void> 
  * becomes a task. The marker in each task's notes is the join key, so a task
  * that already exists is compared against the assignment it maps to and moved
  * or rewritten when the assignment changed, and removed when the assignment
- * left the feed. A task the user deleted is remembered and left deleted, unless
- * `recreate` is set (the Refresh action), which puts recent tasks back.
+ * left the feed. A task the user deleted is remembered and left deleted, and a
+ * completed task that is recreated comes back completed.
  *
- * Events whose deadline is older than `skipOlderThanDays` are not added. A
- * normal sync still keeps an existing task of any age, while Refresh deletes
- * old tasks instead of rebuilding them.
+ * Events whose deadline is older than `skipOlderThanDays` are not added. An
+ * automatic sync keeps an existing task of any age, while Save & Sync
+ * (`enforceSkipThreshold`) deletes tasks past the threshold.
  */
 async function runSync(
 	settings: SettingsRow,
 	userId: string,
-	options: { recreate?: boolean; now: Date },
+	options: { enforceSkipThreshold?: boolean; now: Date },
 ): Promise<SyncCounts> {
 	const accessToken = await googleAccessToken(userId)
 	const sourceUrl = await sourceUrlFor(userId)
@@ -367,7 +395,7 @@ async function runSync(
 	}
 
 	const liveByUid = new Map<string, GoogleTask>()
-	const deletedUids = new Set<string>()
+	const userDeletedUids = new Set<string>()
 	if (!list.created) {
 		for (const task of await listTasks(accessToken, list.id)) {
 			if (!task.id) {
@@ -381,28 +409,34 @@ async function runSync(
 			if (!uid) {
 				continue
 			}
-			if (task.deleted) {
-				deletedUids.add(uid)
-			} else {
+			if (!task.deleted) {
 				liveByUid.set(uid, task)
+			} else if (!task.notes?.includes(REMOVED_BY_SYNC_MARKER)) {
+				userDeletedUids.add(uid)
 			}
 		}
 	}
-	const liveUids = new Set(liveByUid.keys())
 
-	// A task the user deleted is a deleted task whose assignment is still in the
-	// feed. Remember those so later runs do not put them back. Refresh starts
-	// from an empty set so everything is rebuilt.
-	const dismissed = options.recreate
-		? new Set<string>()
-		: parseDismissed(settings.dismissed)
-	if (!options.recreate) {
-		for (const uid of deletedUids) {
-			if (assignments.has(uid) && !liveUids.has(uid)) {
-				dismissed.add(uid)
-			}
+	const statuses = parseTaskStatuses(settings.taskStatuses)
+	for (const uid of userDeletedUids) {
+		if (assignments.has(uid)) {
+			statuses.set(uid, 'deleted')
 		}
 	}
+	// A live task is the authority, so this also picks up a task being reopened.
+	for (const [uid, task] of liveByUid) {
+		if (task.status === 'completed') {
+			statuses.set(uid, 'completed')
+		} else {
+			statuses.delete(uid)
+		}
+	}
+	// Saved before any write: a task removed below can only be restored correctly
+	// if its status survives a later write in this run failing.
+	await db
+		.update(googleTasksSettings)
+		.set({ taskStatuses: serializeTaskStatuses(statuses) })
+		.where(eq(googleTasksSettings.outputCalendarId, outputCalendarId))
 
 	const counts: SyncCounts = { added: 0, updated: 0, removed: 0, skipped: 0 }
 	const writes: Array<() => Promise<void>> = []
@@ -410,19 +444,12 @@ async function runSync(
 	for (const [uid, event] of assignments) {
 		const existing = liveByUid.get(uid)
 		const old = isOlderThan(event, settings.skipOlderThanDays, options.now)
-		if (options.recreate && old) {
-			if (existing?.id) {
-				writes.push(async () => {
-					await deleteTask(accessToken, list.id, existing.id)
-					counts.removed += 1
-				})
-				liveByUid.delete(uid)
-			} else {
-				counts.skipped += 1
-			}
+		if (existing && old && options.enforceSkipThreshold) {
+			// Left in liveByUid, so the removal loop below deletes it.
 			continue
 		}
-		if (dismissed.has(uid) && !liveUids.has(uid)) {
+		const status = statuses.get(uid)
+		if (!existing && (old || status === 'deleted')) {
 			counts.skipped += 1
 			continue
 		}
@@ -431,13 +458,12 @@ async function runSync(
 			due: taskDueDate(event, settings.dueOffsetDays),
 			notes: taskNotes(event, outputCalendarId),
 		}
-		if (!existing?.id) {
-			if (old) {
-				counts.skipped += 1
-				continue
-			}
+		if (!existing) {
 			writes.push(async () => {
-				await insertTask(accessToken, list.id, desired)
+				await insertTask(accessToken, list.id, {
+					...desired,
+					...(status === 'completed' ? { status } : {}),
+				})
 				counts.added += 1
 			})
 			continue
@@ -457,12 +483,14 @@ async function runSync(
 		}
 	}
 
-	// Whatever live task is left maps to an assignment no longer in the feed.
-	for (const task of liveByUid.values()) {
-		if (!task.id) {
-			continue
-		}
+	// Whatever live task is left is past the threshold or no longer in the feed.
+	// It is stamped first because Google keeps deleted tasks in the listing, and
+	// without the stamp the next run would read this as the user deleting it.
+	for (const [uid, task] of liveByUid) {
 		writes.push(async () => {
+			await patchTask(accessToken, list.id, task.id, {
+				notes: removedTaskNotes(uid, outputCalendarId),
+			})
 			await deleteTask(accessToken, list.id, task.id)
 			counts.removed += 1
 		})
@@ -470,18 +498,17 @@ async function runSync(
 
 	await runTaskWrites(writes)
 
-	await db
-		.update(googleTasksSettings)
-		.set({ dismissed: serializeDismissed(dismissed) })
-		.where(eq(googleTasksSettings.outputCalendarId, outputCalendarId))
-
 	return counts
 }
 
 export async function syncGoogleTasks(
 	userId: string,
 	outputCalendarId: string,
-	options: { respectInterval?: boolean; recreate?: boolean; now?: Date } = {},
+	options: {
+		respectInterval?: boolean
+		enforceSkipThreshold?: boolean
+		now?: Date
+	} = {},
 ): Promise<SyncResult> {
 	if (!googleConfigured) {
 		return { ok: false, message: 'Google Tasks sync is not configured.' }
@@ -510,7 +537,7 @@ export async function syncGoogleTasks(
 	inFlight.add(outputCalendarId)
 	try {
 		const counts = await runSync(settings, userId, {
-			recreate: options.recreate,
+			enforceSkipThreshold: options.enforceSkipThreshold,
 			now,
 		})
 		await db
@@ -530,22 +557,6 @@ export async function syncGoogleTasks(
 	} finally {
 		inFlight.delete(outputCalendarId)
 	}
-}
-
-/**
- * Rebuilds every recent task from the feed, including ones the user deleted.
- * It clears the remembered deletions first, so the next sync treats them as
- * new, and removes synced tasks that are older than the skip threshold.
- */
-export function refreshGoogleTasks(
-	userId: string,
-	outputCalendarId: string,
-	options: { now?: Date } = {},
-): Promise<SyncResult> {
-	return syncGoogleTasks(userId, outputCalendarId, {
-		recreate: true,
-		now: options.now,
-	})
 }
 
 /**

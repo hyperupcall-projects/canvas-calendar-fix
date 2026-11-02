@@ -57,6 +57,13 @@
 			"when": 1757800000000,
 			"tag": "0007_output_google_tasks",
 			"breakpoints": true
+		},
+		{
+			"idx": 8,
+			"version": "6",
+			"when": 1757900000000,
+			"tag": "0008_task_statuses",
+			"breakpoints": true
 		}
 	]
 }

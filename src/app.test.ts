@@ -395,7 +395,6 @@ describe('http routes', () => {
 		for (const path of [
 			'/dashboard/google/connect',
 			'/dashboard/outputs/test-output/google/settings',
-			'/dashboard/outputs/test-output/google/sync',
 			'/dashboard/google/disconnect',
 		]) {
 			const response = await app.request(path, { method: 'POST' })

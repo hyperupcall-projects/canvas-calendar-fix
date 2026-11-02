@@ -30,9 +30,9 @@ import {
 import {
 	googleAccountFor,
 	listGoogleTaskLists,
-	refreshGoogleTasks,
 	syncGoogleTasks,
 	syncGoogleTasksInBackground,
+	taskEventMetadata,
 } from './lib/task-sync.ts'
 import {
 	asStringList,
@@ -338,7 +338,7 @@ app.get('/dashboard', async (c) => {
 						: c.req.query('gtasks')
 							? 'Google Tasks settings saved.'
 							: c.req.query('synced')
-								? `Synced to Google Tasks. ${c.req.query('synced')}`
+								? `Saved and synced to Google Tasks. ${c.req.query('synced')}`
 								: c.req.query('connected')
 									? 'Google account connected.'
 									: c.req.query('disconnected')
@@ -512,58 +512,19 @@ app.post('/dashboard/outputs/:id/google/settings', async (c) => {
 			set: { enabled, listName, listId, dueOffsetDays, skipOlderThanDays },
 		})
 
-	return c.redirect(dashboardUrl(beta, { gtasks: '1' }))
-})
-
-app.post('/dashboard/outputs/:id/google/sync', async (c) => {
-	const currentUser = c.get('user')
-	if (!currentUser) {
-		return c.redirect('/sign-in')
-	}
-	const beta = isBeta(c)
-	if (!beta) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not available.', beta),
-		)
+	if (!enabled) {
+		return c.redirect(dashboardUrl(beta, { gtasks: '1' }))
 	}
 
-	const outputId = c.req.param('id')
-	const { outputRows } = await loadCalendarForUser(currentUser.id)
-	if (!outputRows.some((output) => output.id === outputId)) {
-		return c.redirect(redirectWithError('That calendar was not found.', beta))
-	}
-
-	const result = await syncGoogleTasks(currentUser.id, outputId)
+	const result = await syncGoogleTasks(currentUser.id, outputId, {
+		enforceSkipThreshold: true,
+	})
 	if (!result.ok) {
-		return c.redirect(redirectWithError(result.message, beta))
+		return c.redirect(
+			redirectWithError(`Settings saved, but: ${result.message}`, beta),
+		)
 	}
 	const summary = `${result.added} added, ${result.updated} updated, ${result.removed} removed, ${result.skipped} unchanged.`
-	return c.redirect(dashboardUrl(beta, { synced: summary }))
-})
-
-app.post('/dashboard/outputs/:id/google/refresh', async (c) => {
-	const currentUser = c.get('user')
-	if (!currentUser) {
-		return c.redirect('/sign-in')
-	}
-	const beta = isBeta(c)
-	if (!beta) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not available.', beta),
-		)
-	}
-
-	const outputId = c.req.param('id')
-	const { outputRows } = await loadCalendarForUser(currentUser.id)
-	if (!outputRows.some((output) => output.id === outputId)) {
-		return c.redirect(redirectWithError('That calendar was not found.', beta))
-	}
-
-	const result = await refreshGoogleTasks(currentUser.id, outputId)
-	if (!result.ok) {
-		return c.redirect(redirectWithError(result.message, beta))
-	}
-	const summary = `${result.added} recreated, ${result.updated} updated, ${result.removed} removed, ${result.skipped} unchanged.`
 	return c.redirect(dashboardUrl(beta, { synced: summary }))
 })
 
@@ -810,6 +771,14 @@ app.get('/feed/:token', async (c) => {
 		.innerJoin(courses, eq(courses.id, outputCalendarCourses.courseId))
 		.where(eq(outputCalendarCourses.outputCalendarId, output.id))
 	const enabled = new Set(members.map((row) => row.code))
+	const [taskSettings] = await db
+		.select({
+			enabled: googleTasksSettings.enabled,
+			taskStatuses: googleTasksSettings.taskStatuses,
+		})
+		.from(googleTasksSettings)
+		.where(eq(googleTasksSettings.outputCalendarId, output.id))
+		.limit(1)
 
 	try {
 		const ics = await fetchCalendarSource(calendar.sourceUrl)
@@ -819,6 +788,9 @@ app.get('/feed/:token', async (c) => {
 			enabled,
 			output.name,
 			output.addCanvasLink,
+			taskSettings?.enabled
+				? taskEventMetadata(taskSettings.taskStatuses)
+				: undefined,
 		)
 		// A calendar app refreshing its feed is the signal that this calendar is
 		// in use, so it doubles as the sync trigger. Deliberately not awaited: the

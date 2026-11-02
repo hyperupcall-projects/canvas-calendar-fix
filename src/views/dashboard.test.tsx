@@ -246,18 +246,14 @@ describe('DashboardPage', () => {
 		assert.match(html, /name="skipOlderThanDays"/)
 		assert.match(html, /<option value="2" selected="">2 days<\/option>/)
 		assert.match(html, /Last synced: Sep 7, 2026/)
-		assert.match(
-			html,
-			/action="\/dashboard\/outputs\/out-1\/google\/sync\?beta=true"/,
-		)
-		assert.match(
-			html,
-			/action="\/dashboard\/outputs\/out-1\/google\/refresh\?beta=true"/,
-		)
+		assert.match(html, /Save &amp; Sync/)
+		assert.doesNotMatch(html, /google\/sync/)
+		assert.doesNotMatch(html, /google\/refresh/)
+		assert.doesNotMatch(html, /Refresh/)
 		assert.match(html, /action="\/dashboard\/google\/disconnect\?beta=true"/)
 	})
 
-	it('surfaces the last sync error and hides the details while disabled', async () => {
+	it('surfaces the last sync error and offers the options before enabling', async () => {
 		const node = (
 			<DashboardPage
 				email="test@csumb.edu"
@@ -286,11 +282,9 @@ describe('DashboardPage', () => {
 		const html = await Promise.resolve(String(node))
 		assert.match(html, /Last Google Tasks sync failed: Google Tasks returned/)
 		assert.doesNotMatch(html, /name="enabled" checked=""/)
-		assert.doesNotMatch(html, /name="listName"/)
-		const syncIndex = html.indexOf(
-			'action="/dashboard/outputs/out-1/google/sync?beta=true"',
-		)
-		const syncForm = html.slice(syncIndex, html.indexOf('</form>', syncIndex))
-		assert.match(syncForm, /disabled=""/)
+		// Enabling syncs straight away, so the list has to be choosable beforehand.
+		assert.match(html, /name="listName"/)
+		assert.match(html, /<button[^>]*>\s*Save &amp; Sync/)
+		assert.doesNotMatch(html, /Save &amp; Sync[^<]*<\/button>[^]*disabled=""/)
 	})
 })

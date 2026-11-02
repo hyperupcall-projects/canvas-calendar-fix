@@ -109,6 +109,45 @@ describe('resolveTaskListName', () => {
 	})
 })
 
+describe('task statuses migration', () => {
+	it('turns remembered deletions into deleted statuses', async () => {
+		const { default: Database } = await import('better-sqlite3')
+		const { readFileSync, readdirSync } = await import('node:fs')
+		const sqlite = new Database(':memory:')
+		try {
+			for (const file of readdirSync('drizzle')
+				.filter((file) => /^000[0-7].*\.sql$/.test(file))
+				.sort()) {
+				sqlite.exec(readFileSync(`drizzle/${file}`, 'utf8'))
+			}
+			sqlite.exec(`INSERT INTO user (id,name,email,created_at,updated_at) VALUES ('u','Name','test@csumb.edu',1,1);
+				INSERT INTO calendars (id,user_id,source_url,created_at,updated_at) VALUES ('c','u','url',1,1);
+				INSERT INTO output_calendars (id,calendar_id,name,public_token,position,created_at) VALUES ('a','c','A','a',1,1),('b','c','B','b',2,1),('d','c','D','d',3,1);
+				INSERT INTO google_tasks_settings (output_calendar_id,user_id,dismissed) VALUES ('a','u','["one","two"]'),('b','u','[]'),('d','u','not json');`)
+			sqlite.exec(readFileSync('drizzle/0008_task_statuses.sql', 'utf8'))
+			const rows = sqlite
+				.prepare(
+					'SELECT output_calendar_id AS id, task_statuses AS statuses FROM google_tasks_settings ORDER BY id',
+				)
+				.all() as Array<{ id: string; statuses: string }>
+			assert.deepEqual(
+				rows.map((row) => [row.id, JSON.parse(row.statuses)]),
+				[
+					['a', { one: 'deleted', two: 'deleted' }],
+					['b', {}],
+					['d', {}],
+				],
+			)
+			assert.ok(
+				!('dismissed' in
+					(sqlite.prepare('SELECT * FROM google_tasks_settings').get() as object)),
+			)
+		} finally {
+			sqlite.close()
+		}
+	})
+})
+
 describe('per-output Google Tasks migration', () => {
 	it('preserves settings on the first output and cascades deletion', async () => {
 		const { default: Database } = await import('better-sqlite3')

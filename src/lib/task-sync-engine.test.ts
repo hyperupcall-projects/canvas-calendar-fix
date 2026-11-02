@@ -17,7 +17,7 @@ const {
 	outputCalendars,
 } = await import('../db/schema.ts')
 const { clearSourceCache } = await import('./ics.ts')
-const { refreshGoogleTasks, syncGoogleTasks } = await import('./task-sync.ts')
+const { syncGoogleTasks } = await import('./task-sync.ts')
 
 const SOURCE =
 	'https://csumb.instructure.com/feeds/calendars/user_sync_test.ics'
@@ -77,7 +77,8 @@ const recentOld = vevent([
 	'SUMMARY:Recent old assignment [CST463-01_2264]',
 ])
 // Twelve hours past its deadline, so it is inside the default one-day cutoff.
-// It is added now, kept by a later Sync once it ages, and cleared by Refresh.
+// It is added now, kept by a later automatic sync once it ages, and cleared by
+// Save & Sync.
 const justDue = vevent([
 	'UID:event-just-due',
 	'DTSTART:20260825T000000Z',
@@ -91,6 +92,7 @@ type FakeTask = {
 	due?: string
 	notes?: string
 	deleted?: boolean
+	status?: string
 }
 
 const realFetch = globalThis.fetch
@@ -212,6 +214,14 @@ const userId = crypto.randomUUID()
 const calendarId = crypto.randomUUID()
 const courseId = crypto.randomUUID()
 const outputId = crypto.randomUUID()
+
+/** The sync the Save & Sync button runs. */
+function saveAndSync(id: string, syncNow: Date) {
+	return syncGoogleTasks(userId, id, {
+		enforceSkipThreshold: true,
+		now: syncNow,
+	})
+}
 
 async function settingsRow() {
 	const [row] = await db
@@ -348,7 +358,9 @@ describe('syncGoogleTasks', () => {
 		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
 
 		const row = await settingsRow()
-		assert.match(row?.dismissed ?? '', /event-lecture/)
+		assert.deepEqual(JSON.parse(row?.taskStatuses ?? ''), {
+			'event-lecture': 'deleted',
+		})
 	})
 
 	it('still keeps it deleted on the next run', async () => {
@@ -364,37 +376,29 @@ describe('syncGoogleTasks', () => {
 		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
 	})
 
-	it('recreates deleted tasks on Refresh and clears the memory', async () => {
+	it('keeps a user-deleted task deleted through Save & Sync', async () => {
 		clearSourceCache()
-		const result = await refreshGoogleTasks(userId, outputId, { now: TEST_NOW })
+		const result = await saveAndSync(outputId, TEST_NOW)
 		assert.deepEqual(result, {
-			ok: true,
-			added: 1,
-			updated: 0,
-			removed: 0,
-			skipped: 1,
-		})
-		assert.deepEqual(taskTitles(), [
-			'Homework 3 [CST463-01_2264]',
-			'Lecture [CST463-01_2264]',
-		])
-
-		const row = await settingsRow()
-		assert.equal(row?.dismissed, '[]')
-		// A normal run afterwards leaves the rebuilt task alone.
-		clearSourceCache()
-		const next = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
-		assert.deepEqual(next, {
 			ok: true,
 			added: 0,
 			updated: 0,
 			removed: 0,
 			skipped: 2,
 		})
+		assert.deepEqual(taskTitles(), ['Homework 3 [CST463-01_2264]'])
 	})
 
 	it('removes a task once its event leaves the feed', async () => {
 		feed = calendarFeed([homework3Moved])
+		// The lecture came back so that it can leave again.
+		await db
+			.update(googleTasksSettings)
+			.set({ taskStatuses: '{}' })
+			.where(eq(googleTasksSettings.userId, userId))
+		for (const task of storedTasks()) {
+			delete task.deleted
+		}
 		clearSourceCache()
 
 		const result = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
@@ -462,7 +466,7 @@ describe('syncGoogleTasks', () => {
 		assert.ok(taskFor('event-just-due'))
 	})
 
-	it('keeps an existing old task during Sync', async () => {
+	it('keeps an existing old task during an automatic sync', async () => {
 		clearSourceCache()
 		const result = await syncGoogleTasks(userId, outputId, {
 			now: TWO_DAYS_LATER,
@@ -477,11 +481,9 @@ describe('syncGoogleTasks', () => {
 		assert.equal(taskFor('event-just-due')?.deleted, undefined)
 	})
 
-	it('clears old tasks on Refresh instead of recreating them', async () => {
+	it('deletes tasks past the threshold on Save & Sync', async () => {
 		clearSourceCache()
-		const result = await refreshGoogleTasks(userId, outputId, {
-			now: TWO_DAYS_LATER,
-		})
+		const result = await saveAndSync(outputId, TWO_DAYS_LATER)
 		assert.deepEqual(result, {
 			ok: true,
 			added: 0,
@@ -491,6 +493,11 @@ describe('syncGoogleTasks', () => {
 		})
 		assert.equal(taskFor('event-just-due')?.deleted, true)
 		assert.equal(taskFor('event-recent-old'), undefined)
+		// A removal by the sync is not a deletion by the user.
+		clearSourceCache()
+		await saveAndSync(outputId, TWO_DAYS_LATER)
+		const row = await settingsRow()
+		assert.deepEqual(JSON.parse(row?.taskStatuses ?? ''), {})
 	})
 
 	it('honours a larger skip threshold when adding tasks', async () => {
@@ -514,7 +521,7 @@ describe('syncGoogleTasks', () => {
 })
 
 describe('output calendar isolation', () => {
-	it('keeps filters, due dates, refreshes and sync intervals independent in a shared list', async () => {
+	it('keeps filters, due dates, saves and sync intervals independent in a shared list', async () => {
 		const otherId = crypto.randomUUID()
 		await db
 			.insert(outputCalendars)
@@ -563,13 +570,14 @@ describe('output calendar isolation', () => {
 			assert.notEqual(owned(outputId)[0].due, owned(otherId)[0].due)
 			const primaryTasks = structuredClone(owned(outputId))
 			owned(otherId)[0].deleted = true
-			await refreshGoogleTasks(userId, otherId, { now: TEST_NOW })
+			await saveAndSync(otherId, TEST_NOW)
 			assert.deepEqual(owned(outputId), primaryTasks)
-			assert.equal(owned(otherId).length, 1)
+			// A deletion in one calendar stays that calendar's.
+			assert.equal(owned(otherId).length, 0)
 			await db
 				.delete(outputCalendarCourses)
 				.where(eq(outputCalendarCourses.outputCalendarId, otherId))
-			await refreshGoogleTasks(userId, otherId, { now: TEST_NOW })
+			await saveAndSync(otherId, TEST_NOW)
 			assert.equal(owned(otherId).length, 0)
 			assert.deepEqual(owned(outputId), primaryTasks)
 			await db
@@ -622,7 +630,7 @@ describe('concurrent task writes', () => {
 	it('limits inserts, updates and deletes to ten concurrent requests across multiple batches', async () => {
 		await db
 			.update(googleTasksSettings)
-			.set({ enabled: true, listId: null, dismissed: '[]' })
+			.set({ enabled: true, listId: null, taskStatuses: '{}' })
 			.where(eq(googleTasksSettings.outputCalendarId, outputId))
 		lists.clear()
 		feed = calendarFeed(manyEvents(20))
@@ -663,7 +671,8 @@ describe('concurrent task writes', () => {
 			assert.equal(peak, 10)
 			assert.equal(active, 0)
 			assert.equal(methods.filter((method) => method === 'POST').length, 15)
-			assert.equal(methods.filter((method) => method === 'PATCH').length, 10)
+			// Ten updates, plus a stamp on each of the ten removed tasks.
+			assert.equal(methods.filter((method) => method === 'PATCH').length, 20)
 			assert.equal(methods.filter((method) => method === 'DELETE').length, 10)
 			assert.equal(taskTitles().length, 25)
 		} finally {
@@ -674,7 +683,7 @@ describe('concurrent task writes', () => {
 	it('drains a failed batch, keeps the lock, records all errors and reconciles on retry', async () => {
 		await db
 			.update(googleTasksSettings)
-			.set({ listId: null, dismissed: '[]', lastSyncAt: TWO_DAYS_LATER })
+			.set({ listId: null, taskStatuses: '{}', lastSyncAt: TWO_DAYS_LATER })
 			.where(eq(googleTasksSettings.outputCalendarId, outputId))
 		lists.clear()
 		feed = calendarFeed(manyEvents(25))
@@ -732,5 +741,148 @@ describe('concurrent task writes', () => {
 			await pending
 			globalThis.fetch = fakeFetch
 		}
+	})
+})
+
+// These run in order; each builds on the state the previous one left behind.
+describe('Save & Sync', () => {
+	/** Fresh list holding only the two in-threshold tasks at TEST_NOW. */
+	async function resetSaveAndSyncState(): Promise<void> {
+		await db
+			.update(googleTasksSettings)
+			.set({
+				enabled: true,
+				listId: null,
+				taskStatuses: '{}',
+				dueOffsetDays: 7,
+				skipOlderThanDays: 1,
+			})
+			.where(eq(googleTasksSettings.outputCalendarId, outputId))
+		lists.clear()
+		feed = calendarFeed([homework3Moved, recentOld, justDue])
+		clearSourceCache()
+		const seeded = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+		assert.ok(seeded.ok && seeded.added === 2)
+	}
+
+	before(async () => {
+		await resetSaveAndSyncState()
+		clearSourceCache()
+		const removed = await saveAndSync(outputId, TWO_DAYS_LATER)
+		assert.ok(removed.ok && removed.removed === 1)
+	})
+
+	it('creates a removed task again once the threshold is widened', async () => {
+		await db
+			.update(googleTasksSettings)
+			.set({ skipOlderThanDays: 5 })
+			.where(eq(googleTasksSettings.userId, userId))
+		clearSourceCache()
+		const result = await saveAndSync(outputId, TWO_DAYS_LATER)
+		assert.equal(result.ok && result.added, 2)
+		const live = storedTasks().filter(
+			(task) => task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+		)
+		assert.equal(live.length, 1)
+		assert.equal(live[0].status, undefined)
+	})
+
+	it('restores a completed task as completed after it was removed', async () => {
+		const liveTask = (uid: string) =>
+			storedTasks().find(
+				(task) => task.notes?.includes(`[canvas:${uid}]`) && !task.deleted,
+			)
+		const done = liveTask('event-just-due')
+		assert.ok(done)
+		done.status = 'completed'
+		await db
+			.update(googleTasksSettings)
+			.set({ skipOlderThanDays: 1 })
+			.where(eq(googleTasksSettings.userId, userId))
+		clearSourceCache()
+		await saveAndSync(outputId, TWO_DAYS_LATER)
+		assert.equal(liveTask('event-just-due'), undefined)
+		assert.match((await settingsRow())?.taskStatuses ?? '', /"event-just-due":"completed"/)
+
+		await db
+			.update(googleTasksSettings)
+			.set({ skipOlderThanDays: 5 })
+			.where(eq(googleTasksSettings.userId, userId))
+		clearSourceCache()
+		await saveAndSync(outputId, TWO_DAYS_LATER)
+		assert.equal(liveTask('event-just-due')?.status, 'completed')
+	})
+
+	it('keeps a completed task completed when its due date moves', async () => {
+		const done = storedTasks().find(
+			(task) =>
+				task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+		)
+		assert.ok(done)
+		const before = done.due
+		await db
+			.update(googleTasksSettings)
+			.set({ dueOffsetDays: 3 })
+			.where(eq(googleTasksSettings.userId, userId))
+		clearSourceCache()
+		await saveAndSync(outputId, TWO_DAYS_LATER)
+		assert.notEqual(done.due, before)
+		assert.equal(done.status, 'completed')
+		await db
+			.update(googleTasksSettings)
+			.set({ dueOffsetDays: 7, skipOlderThanDays: 1 })
+			.where(eq(googleTasksSettings.userId, userId))
+	})
+
+	it('reopening a completed task clears its status', async () => {
+		const done = storedTasks().find(
+			(task) =>
+				task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+		)
+		assert.ok(done)
+		done.status = 'needsAction'
+		clearSourceCache()
+		await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+		assert.doesNotMatch((await settingsRow())?.taskStatuses ?? '', /event-just-due/)
+	})
+
+	it('records a deleted status when a completed task is then deleted', async () => {
+		const done = storedTasks().find(
+			(task) =>
+				task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+		)
+		assert.ok(done)
+		done.status = 'completed'
+		clearSourceCache()
+		await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+		done.deleted = true
+		clearSourceCache()
+		await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
+		assert.match((await settingsRow())?.taskStatuses ?? '', /"event-just-due":"deleted"/)
+	})
+
+	it('keeps a removed task status when a later write in the run fails', async () => {
+		await resetSaveAndSyncState()
+		const done = taskFor('event-just-due')
+		assert.ok(done)
+		done.status = 'completed'
+		clearSourceCache()
+		const fakeFetch = globalThis.fetch
+		globalThis.fetch = (async (input, init) => {
+			if (init?.method === 'DELETE' || init?.method === 'PATCH') {
+				return new Response('{}', { status: 500 })
+			}
+			return fakeFetch(input, init)
+		}) as typeof fetch
+		try {
+			const result = await saveAndSync(outputId, TWO_DAYS_LATER)
+			assert.equal(result.ok, false)
+		} finally {
+			globalThis.fetch = fakeFetch
+		}
+		assert.match(
+			(await settingsRow())?.taskStatuses ?? '',
+			/"event-just-due":"completed"/,
+		)
 	})
 })
