@@ -75,8 +75,8 @@ function isOlderThan(event: ParsedEvent, days: number, now: Date): boolean {
 /**
  * Google Tasks stores only the date half of `due` and discards the time, so the
  * deadline is resolved to a Pacific calendar day first. The task is then due the
- * configured number of days before that deadline, so it surfaces on the calendar
- * ahead of the assignment rather than on the day it is due.
+ * configured number of days before that deadline, so it can surface on the
+ * calendar ahead of the assignment. An offset of 0 keeps it on the deadline day.
  */
 export function taskDueDate(event: ParsedEvent, offsetDays: number): string {
 	const { year, month, day } = localParts(lastDueInstant(event))

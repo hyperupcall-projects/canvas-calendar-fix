@@ -12,7 +12,7 @@ export const MAX_OUTPUT_CALENDARS = 8
 // How many days before an assignment's deadline the Google Task is due, so it
 // surfaces on the calendar ahead of time.
 export const DEFAULT_DUE_OFFSET_DAYS = 7
-export const MIN_DUE_OFFSET_DAYS = 1
+export const MIN_DUE_OFFSET_DAYS = 0
 export const MAX_DUE_OFFSET_DAYS = 14
 
 // A normal sync will not add a task whose Canvas deadline is older than this

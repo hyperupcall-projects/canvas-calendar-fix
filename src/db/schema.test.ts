@@ -33,14 +33,15 @@ describe('nextOutputPosition', () => {
 })
 
 describe('clampDueOffsetDays', () => {
-	it('keeps whole values inside the 1-14 range', () => {
-		assert.equal(clampDueOffsetDays(1), MIN_DUE_OFFSET_DAYS)
+	it('keeps whole values inside the 0-14 range', () => {
+		assert.equal(clampDueOffsetDays(0), MIN_DUE_OFFSET_DAYS)
+		assert.equal(clampDueOffsetDays(1), 1)
 		assert.equal(clampDueOffsetDays(7), 7)
 		assert.equal(clampDueOffsetDays(14), MAX_DUE_OFFSET_DAYS)
 	})
 
 	it('clamps out-of-range values and rounds down', () => {
-		assert.equal(clampDueOffsetDays(0), MIN_DUE_OFFSET_DAYS)
+		assert.equal(clampDueOffsetDays(-1), MIN_DUE_OFFSET_DAYS)
 		assert.equal(clampDueOffsetDays(30), MAX_DUE_OFFSET_DAYS)
 		assert.equal(clampDueOffsetDays(4.9), 4)
 	})
@@ -55,9 +56,9 @@ describe('clampDueOffsetDays', () => {
 })
 
 describe('dueOffsetOptions', () => {
-	it('offers every whole day from 1 to 14', () => {
+	it('offers every whole day from 0 to 14', () => {
 		const options = dueOffsetOptions()
-		assert.equal(options.length, 14)
+		assert.equal(options.length, 15)
 		assert.equal(options[0], MIN_DUE_OFFSET_DAYS)
 		assert.equal(options.at(-1), MAX_DUE_OFFSET_DAYS)
 	})

@@ -352,8 +352,8 @@ export function DashboardPage(props: {
 																<p class="form-hint">
 																	Each task keeps its full deadline (time
 																	included) in its notes; its due date is set
-																	this many days earlier so it surfaces on your
-																	calendar ahead of the assignment.
+																	this many days earlier so it can surface on
+																	your calendar ahead of the assignment.
 																</p>
 															</>
 														) : null}

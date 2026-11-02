@@ -54,6 +54,10 @@ describe('taskDueDate', () => {
 		assert.equal(taskDueDate(lateNight, 1), '2026-08-23T00:00:00.000Z')
 	})
 
+	it('stays on the Pacific deadline day with no offset', () => {
+		assert.equal(taskDueDate(lateNight, 0), '2026-08-24T00:00:00.000Z')
+	})
+
 	it('crosses a month boundary correctly', () => {
 		const september = event(`UID:sept
 DTSTART:20260903T065900Z
