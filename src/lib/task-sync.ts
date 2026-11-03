@@ -32,7 +32,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000
  * so automatic runs are spaced out. The manual Save & Sync ignores this.
  */
 const MIN_SYNC_INTERVAL_MS = 15 * 60 * 1000
-const MAX_CONCURRENT_TASK_WRITES = 10
+// Google Tasks answered with HTTP 500s at ten concurrent writes to one list.
+const MAX_CONCURRENT_TASK_WRITES = 3
 
 const localFormatter = new Intl.DateTimeFormat('en-US', {
 	timeZone: TASK_TIMEZONE,

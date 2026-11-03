@@ -627,7 +627,7 @@ function isTaskWrite(input: unknown, init?: RequestInit): boolean {
 }
 
 describe('concurrent task writes', () => {
-	it('limits inserts, updates and deletes to ten concurrent requests across multiple batches', async () => {
+	it('limits inserts, updates and deletes to three concurrent requests across multiple batches', async () => {
 		await db
 			.update(googleTasksSettings)
 			.set({ enabled: true, listId: null, taskStatuses: '{}' })
@@ -654,7 +654,7 @@ describe('concurrent task writes', () => {
 		try {
 			const initial = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
 			assert.ok(initial.ok && initial.added === 20)
-			assert.equal(peak, 10)
+			assert.equal(peak, 3)
 			methods.length = 0
 			peak = 0
 			// Update ten, insert fifteen, and delete the ten absent from this feed.
@@ -668,7 +668,7 @@ describe('concurrent task writes', () => {
 				removed: 10,
 				skipped: 0,
 			})
-			assert.equal(peak, 10)
+			assert.equal(peak, 3)
 			assert.equal(active, 0)
 			assert.equal(methods.filter((method) => method === 'POST').length, 15)
 			// Ten updates, plus a stamp on each of the ten removed tasks.
@@ -696,7 +696,7 @@ describe('concurrent task writes', () => {
 		globalThis.fetch = (async (input, init) => {
 			if (!isTaskWrite(input, init)) return fakeFetch(input, init)
 			writes += 1
-			if (writes === 10) started.resolve()
+			if (writes === 3) started.resolve()
 			if (writes === 1) return new Response('server error', { status: 500 })
 			if (writes === 2) {
 				// Google committed this insert, but its response never reached us.
@@ -714,7 +714,7 @@ describe('concurrent task writes', () => {
 		)
 		try {
 			await started.promise
-			// Let both failures propagate while the other eight writes are held.
+			// Let both failures propagate while the third write is held.
 			await new Promise<void>((resolve) => setImmediate(resolve))
 			assert.equal(finished, false)
 			const overlapping = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
@@ -726,14 +726,14 @@ describe('concurrent task writes', () => {
 			assert.match(result.message, /2 Google Tasks request\(s\) failed/)
 			assert.match(result.message, /HTTP 500/)
 			assert.match(result.message, /Network disconnected/)
-			assert.equal(writes, 10, 'later batches must not start after failure')
-			assert.equal(taskTitles().length, 9)
+			assert.equal(writes, 3, 'later batches must not start after failure')
+			assert.equal(taskTitles().length, 2)
 			const row = await settingsRow()
 			assert.equal(row?.lastSyncError, result.message)
 			assert.equal(row?.lastSyncAt?.getTime(), TWO_DAYS_LATER.getTime())
 			globalThis.fetch = fakeFetch
 			const retry = await syncGoogleTasks(userId, outputId, { now: TEST_NOW })
-			assert.deepEqual(retry, { ok: true, added: 16, updated: 0, removed: 0, skipped: 9 })
+			assert.deepEqual(retry, { ok: true, added: 23, updated: 0, removed: 0, skipped: 2 })
 			assert.equal(taskTitles().length, 25)
 			assert.equal((await settingsRow())?.lastSyncError, null)
 		} finally {
