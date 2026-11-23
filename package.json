@@ -28,7 +28,7 @@
   },
   "devDependencies": {
     "@flydotio/dockerfile": "^0.7.10",
-    "@hyperupcall/scripts-nodejs": "0.10.0",
+    "@hyperupcall/scripts-nodejs": "0.13.0",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.4.0",
     "drizzle-kit": "^0.31.10",
@@ -38,5 +38,6 @@
   "markdownlint-cli2": {
     "extends": "./node_modules/@hyperupcall/markdownlint-config/.markdownlint.json"
   },
-  "prettier": "@hyperupcall/scripts-nodejs/config-prettier.js"
+  "prettier": "@hyperupcall/scripts-nodejs/config-prettier.js",
+  "packageManager": "pnpm@12.21.0+sha512.66fd8278ee28935ce951792d34367ff3af5c432a2756445823029533835b8da529bbe0be5130afd56ed0713fb8789e47bad82d93bd5ae2fe54b15562d6276ef0"
 }

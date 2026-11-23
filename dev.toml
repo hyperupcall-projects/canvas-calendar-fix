@@ -1,0 +1,2 @@
+[rules]
+"remote-url/remote-metadata/homepage-url-must-match" = "off"
