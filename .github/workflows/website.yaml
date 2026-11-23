@@ -37,10 +37,22 @@ jobs:
               '<main>{{ section.content | safe }}</main>' \
               > docs/templates/index.html
           fi
-      - uses: 'getzola/github-pages@066755243e69f508fd1a74739fbf1a65f656c790'
+      - name: 'Download Zola'
+        shell: bash
+        run: |
+          curl -fsSL \
+            'https://github.com/getzola/zola/releases/download/v0.23.0/zola-v0.23.0-x86_64-unknown-linux-gnu.tar.gz' \
+            -o "$RUNNER_TEMP/zola.tar.gz"
+          tar -xzf "$RUNNER_TEMP/zola.tar.gz" -C "$RUNNER_TEMP" zola
+      - name: 'Build site with Zola'
+        shell: bash
+        working-directory: 'docs'
+        env:
+          PAGES_BASE_URL: '${{ steps.pages.outputs.base_url }}'
+        run: |
+          "$RUNNER_TEMP/zola" build --base-url "$PAGES_BASE_URL" --output-dir public
+      - uses: 'actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b'
         with:
-          zola_version: 'v0.23.0'
-          working_directory: 'docs'
-          build_flags: '--base-url "${{ steps.pages.outputs.base_url }}" --output-dir public'
+          path: 'docs/public'
       - uses: 'actions/deploy-pages@v4'
         id: deployment
