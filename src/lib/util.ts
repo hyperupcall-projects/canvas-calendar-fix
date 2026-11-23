@@ -107,9 +107,7 @@ export function newId(): string {
 }
 
 export function newPublicToken(): string {
-	return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString(
-		'base64url',
-	)
+	return Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url')
 }
 
 export function asStringList(value: unknown): string[] {

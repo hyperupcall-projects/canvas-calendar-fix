@@ -132,9 +132,7 @@ export function canvasUidFromNotes(notes: string | undefined): string | null {
 /** The task title, clamped to Google's limit and never blank. */
 export function taskTitle(event: ParsedEvent): string {
 	const title = event.summary.trim()
-	return title.length > 0
-		? title.slice(0, MAX_TITLE_LENGTH)
-		: DEFAULT_TASK_TITLE
+	return title.length > 0 ? title.slice(0, MAX_TITLE_LENGTH) : DEFAULT_TASK_TITLE
 }
 
 /**
@@ -143,10 +141,7 @@ export function taskTitle(event: ParsedEvent): string {
  * goes last so it stays out of the way of anything the user writes, and the
  * description is trimmed so the total stays within Google's notes limit.
  */
-export function taskNotes(
-	event: ParsedEvent,
-	outputCalendarId?: string,
-): string {
+export function taskNotes(event: ParsedEvent, outputCalendarId?: string): string {
 	const marker = `\n\n${outputCalendarId ? `[canvas-output:${outputCalendarId}]\n` : ''}${taskMarker(event.uid)}`
 	const header = [`Deadline: ${taskDeadline(event)}`]
 	if (event.url) {
@@ -178,9 +173,7 @@ export type SyncResult =
 // run would race the first over the same list, so they are serialized per output calendar.
 const inFlight = new Set<string>()
 
-export async function googleAccountFor(
-	userId: string,
-): Promise<{ id: string } | null> {
+export async function googleAccountFor(userId: string): Promise<{ id: string } | null> {
 	const [linked] = await db
 		.select({ id: account.id })
 		.from(account)
@@ -214,9 +207,7 @@ async function googleAccessToken(userId: string): Promise<string> {
 }
 
 /** The account's task lists, for the dashboard list picker. */
-export async function listGoogleTaskLists(
-	userId: string,
-): Promise<GoogleTaskList[]> {
+export async function listGoogleTaskLists(userId: string): Promise<GoogleTaskList[]> {
 	const accessToken = await googleAccessToken(userId)
 	return listTaskLists(accessToken)
 }
@@ -240,9 +231,7 @@ async function loadSettings(userId: string, outputCalendarId: string) {
  * The app exists to drop courses (for example, ones being TA'd), and that filter
  * should carry over to tasks too.
  */
-async function enabledCourseCodes(
-	outputCalendarId: string,
-): Promise<Set<string>> {
+async function enabledCourseCodes(outputCalendarId: string): Promise<Set<string>> {
 	const rows = await db
 		.select({ code: courses.code })
 		.from(outputCalendarCourses)

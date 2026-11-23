@@ -83,23 +83,17 @@ async function makeUser(
 }
 
 function postSettings(cookie: string, outputId: string, body: URLSearchParams) {
-	return app.request(
-		`/dashboard/outputs/${outputId}/google/settings?beta=true`,
-		{
-			method: 'POST',
-			headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
-			body,
-		},
-	)
+	return app.request(`/dashboard/outputs/${outputId}/google/settings?beta=true`, {
+		method: 'POST',
+		headers: { cookie, 'content-type': 'application/x-www-form-urlencoded' },
+		body,
+	})
 }
 
 describe('google tasks routes', () => {
 	it('allows the Google address to differ from the school address', () => {
 		// Without this, the OAuth callback redirects with email_does_not_match.
-		assert.equal(
-			auth.options.account?.accountLinking?.allowDifferentEmails,
-			true,
-		)
+		assert.equal(auth.options.account?.accountLinking?.allowDifferentEmails, true)
 	})
 
 	it('saves the enable flag, list name, due offset and skip threshold', async () => {
@@ -149,10 +143,7 @@ describe('google tasks routes', () => {
 				]),
 			)
 			// Nothing to sync while disabled, so this is a plain save.
-			assert.equal(
-				response.headers.get('location'),
-				'/dashboard?gtasks=1&beta=true',
-			)
+			assert.equal(response.headers.get('location'), '/dashboard?gtasks=1&beta=true')
 			const [row] = await db
 				.select()
 				.from(googleTasksSettings)
@@ -168,13 +159,10 @@ describe('google tasks routes', () => {
 	it('starts the Google link with the OAuth state cookie attached', async () => {
 		const { userId, cookie } = await makeUser('gconnect')
 		try {
-			const response = await app.request(
-				'/dashboard/google/connect?beta=true',
-				{
-					method: 'POST',
-					headers: { cookie },
-				},
-			)
+			const response = await app.request('/dashboard/google/connect?beta=true', {
+				method: 'POST',
+				headers: { cookie },
+			})
 			assert.equal(response.status, 302)
 			assert.match(
 				response.headers.get('location') ?? '',
@@ -243,10 +231,10 @@ describe('google tasks routes', () => {
 				lastSyncError: 'stale failure',
 			})
 
-			const response = await app.request(
-				'/dashboard/google/disconnect?beta=true',
-				{ method: 'POST', headers: { cookie } },
-			)
+			const response = await app.request('/dashboard/google/disconnect?beta=true', {
+				method: 'POST',
+				headers: { cookie },
+			})
 			assert.equal(response.status, 302)
 			assert.equal(
 				response.headers.get('location'),
@@ -254,8 +242,7 @@ describe('google tasks routes', () => {
 			)
 
 			assert.equal(
-				(await db.select().from(account).where(eq(account.userId, userId)))
-					.length,
+				(await db.select().from(account).where(eq(account.userId, userId))).length,
 				0,
 			)
 			const [row] = await db
@@ -363,16 +350,14 @@ describe('per-output Google Tasks access', () => {
 				.from(calendars)
 				.where(eq(calendars.userId, first.userId))
 			const secondId = crypto.randomUUID()
-			await db
-				.insert(outputCalendars)
-				.values({
-					id: secondId,
-					calendarId: source.id,
-					name: 'TA',
-					publicToken: crypto.randomUUID(),
-					position: 2,
-					createdAt: now,
-				})
+			await db.insert(outputCalendars).values({
+				id: secondId,
+				calendarId: source.id,
+				name: 'TA',
+				publicToken: crypto.randomUUID(),
+				position: 2,
+				createdAt: now,
+			})
 			await postSettings(
 				first.cookie,
 				first.outputId,
@@ -397,9 +382,7 @@ describe('per-output Google Tasks access', () => {
 				.select()
 				.from(googleTasksSettings)
 				.where(eq(googleTasksSettings.userId, first.userId))
-			const primary = rows.find(
-				(row) => row.outputCalendarId === first.outputId,
-			)
+			const primary = rows.find((row) => row.outputCalendarId === first.outputId)
 			const second = rows.find((row) => row.outputCalendarId === secondId)
 			assert.equal(primary?.enabled, false)
 			assert.equal(primary?.listName, 'Class')

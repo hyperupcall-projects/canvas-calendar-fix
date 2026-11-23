@@ -10,22 +10,13 @@ export type AdminUserRow = {
 export type AdminSort = 'email' | 'createdAt' | 'lastUsed'
 export type AdminDir = 'asc' | 'desc'
 
-function sortHref(
-	current: AdminSort,
-	dir: AdminDir,
-	column: AdminSort,
-): string {
+function sortHref(current: AdminSort, dir: AdminDir, column: AdminSort): string {
 	const nextDir = current === column && dir === 'asc' ? 'desc' : 'asc'
-	const usedDir =
-		current === column ? nextDir : column === 'email' ? 'asc' : 'desc'
+	const usedDir = current === column ? nextDir : column === 'email' ? 'asc' : 'desc'
 	return `/admin?sort=${column}&dir=${usedDir}`
 }
 
-function sortMarker(
-	current: AdminSort,
-	dir: AdminDir,
-	column: AdminSort,
-): string {
+function sortMarker(current: AdminSort, dir: AdminDir, column: AdminSort): string {
 	if (current !== column) {
 		return ''
 	}
@@ -34,28 +25,24 @@ function sortMarker(
 
 export function AdminLoginPage(props: { error?: string | null }) {
 	return (
-		<Layout title="Admin sign in">
-			<section class="narrow">
+		<Layout title='Admin sign in'>
+			<section class='narrow'>
 				<h1>Admin</h1>
 				<p>Enter the admin email to receive a sign-in link.</p>
 				<ErrorBanner message={props.error} />
-				<form
-					method="post"
-					action="/admin/login"
-					class="pure-form pure-form-stacked"
-				>
+				<form method='post' action='/admin/login' class='pure-form pure-form-stacked'>
 					<label>
 						Email
 						<input
-							class="pure-input-1"
-							type="email"
-							name="email"
+							class='pure-input-1'
+							type='email'
+							name='email'
 							required
-							autocomplete="email"
-							placeholder="you@university.edu"
+							autocomplete='email'
+							placeholder='you@university.edu'
 						/>
 					</label>
-					<button type="submit" class="pure-button pure-button-primary">
+					<button type='submit' class='pure-button pure-button-primary'>
 						Email me a sign-in link
 					</button>
 				</form>
@@ -66,15 +53,15 @@ export function AdminLoginPage(props: { error?: string | null }) {
 
 export function AdminCheckEmailPage(props: { email: string }) {
 	return (
-		<Layout title="Check your email">
-			<section class="narrow">
+		<Layout title='Check your email'>
+			<section class='narrow'>
 				<h1>Check your inbox</h1>
 				<p>
-					If <strong>{props.email}</strong> can receive mail, a sign-in link is
-					on the way. Open it to continue to the admin page.
+					If <strong>{props.email}</strong> can receive mail, a sign-in link is on the
+					way. Open it to continue to the admin page.
 				</p>
 				<p>
-					<a href="/admin/login">Use a different email</a>
+					<a href='/admin/login'>Use a different email</a>
 				</p>
 			</section>
 		</Layout>
@@ -89,49 +76,46 @@ export function AdminPage(props: {
 	dir: AdminDir
 }) {
 	return (
-		<Layout
-			title="Admin"
-			nav={<UserNav email={props.email} isAdmin />}
-		>
+		<Layout title='Admin' nav={<UserNav email={props.email} isAdmin />}>
 			<section>
 				<h1>Users</h1>
 				<p>
 					Total users: <strong>{props.totalUsers}</strong>
 				</p>
 
-				<form method="get" action="/admin" class="pure-form admin-controls">
+				<form method='get' action='/admin' class='pure-form admin-controls'>
 					<label>
 						Sort by
-						<select name="sort">
-							<option value="createdAt" selected={props.sort === 'createdAt'}>
+						<select name='sort'>
+							<option value='createdAt' selected={props.sort === 'createdAt'}>
 								Signed up
 							</option>
-							<option value="email" selected={props.sort === 'email'}>
+							<option value='email' selected={props.sort === 'email'}>
 								Email
 							</option>
-							<option value="lastUsed" selected={props.sort === 'lastUsed'}>
+							<option value='lastUsed' selected={props.sort === 'lastUsed'}>
 								Calendar last used
 							</option>
 						</select>
 					</label>
 					<label>
 						Direction
-						<select name="dir">
-							<option value="asc" selected={props.dir === 'asc'}>
+						<select name='dir'>
+							<option value='asc' selected={props.dir === 'asc'}>
 								Ascending
 							</option>
-							<option value="desc" selected={props.dir === 'desc'}>
+							<option value='desc' selected={props.dir === 'desc'}>
 								Descending
 							</option>
 						</select>
 					</label>
-					<button type="submit" class="pure-button">
+					<button type='submit' class='pure-button'>
 						Apply
 					</button>
 				</form>
 
-				<div class="table-wrap">
-					<table class="pure-table admin-table">
+				<div class='table-wrap'>
+					<table class='pure-table admin-table'>
 						<thead>
 							<tr>
 								<th>

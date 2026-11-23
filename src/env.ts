@@ -32,9 +32,7 @@ export const env = {
 
 // Google Tasks sync is optional; without credentials the feature stays hidden
 // and the rest of the app runs unchanged.
-export const googleConfigured = Boolean(
-	env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET,
-)
+export const googleConfigured = Boolean(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)
 
 if (!Number.isInteger(env.PORT) || env.PORT <= 0) {
 	throw new Error('PORT must be a positive integer')

@@ -4,8 +4,7 @@ import { MAX_OUTPUT_CALENDARS } from '../db/schema.ts'
 import { DashboardPage, type DashboardOutput } from './dashboard.tsx'
 
 function makeOutput(
-	overrides: Partial<DashboardOutput> &
-		Pick<DashboardOutput, 'id' | 'name' | 'feedUrl'>,
+	overrides: Partial<DashboardOutput> & Pick<DashboardOutput, 'id' | 'name' | 'feedUrl'>,
 ): DashboardOutput {
 	return {
 		enabledCodes: [],
@@ -18,8 +17,8 @@ describe('DashboardPage', () => {
 	it('renders the Canvas URL, class toggles, and private feed links', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }, { code: 'CST334-01_2264' }]}
 				outputs={[
 					makeOutput({
@@ -59,10 +58,7 @@ describe('DashboardPage', () => {
 		assert.match(html, /action="\/dashboard\/outputs"/)
 		assert.match(html, /Add another calendar/)
 		assert.match(html, /checked=""/)
-		assert.match(
-			html,
-			/Modify event description to add Canvas link\s*\(recommended\)/,
-		)
+		assert.match(html, /Modify event description to add Canvas link\s*\(recommended\)/)
 		assert.doesNotMatch(html, /<script/)
 		const labsIndex = html.indexOf('Labs only')
 		const firstRemove = html.indexOf('action="/dashboard/outputs/out-1/delete"')
@@ -77,8 +73,8 @@ describe('DashboardPage', () => {
 	it('lets you add a second calendar but not remove the last one', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
 					makeOutput({
@@ -109,8 +105,8 @@ describe('DashboardPage', () => {
 		)
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={outputs}
 			/>
@@ -123,12 +119,7 @@ describe('DashboardPage', () => {
 
 	it('hides reset until a Canvas calendar URL is saved', async () => {
 		const node = (
-			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl=""
-				courses={[]}
-				outputs={[]}
-			/>
+			<DashboardPage email='test@csumb.edu' sourceUrl='' courses={[]} outputs={[]} />
 		)
 		const html = await Promise.resolve(String(node))
 		assert.match(html, /action="\/dashboard\/source"/)
@@ -139,8 +130,8 @@ describe('DashboardPage', () => {
 	it('hides the Google Tasks section when it is not configured', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
 					makeOutput({
@@ -159,8 +150,8 @@ describe('DashboardPage', () => {
 	it('hides the Google Tasks section unless the dashboard is opened with beta=true', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
 					makeOutput({
@@ -181,8 +172,8 @@ describe('DashboardPage', () => {
 	it('offers to connect Google when configured and not yet connected', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
 					makeOutput({
@@ -197,17 +188,14 @@ describe('DashboardPage', () => {
 		)
 		const html = await Promise.resolve(String(node))
 		assert.match(html, /action="\/dashboard\/google\/connect\?beta=true"/)
-		assert.doesNotMatch(
-			html,
-			/action="\/dashboard\/outputs\/out-1\/google\/settings/,
-		)
+		assert.doesNotMatch(html, /action="\/dashboard\/outputs\/out-1\/google\/settings/)
 	})
 
 	it('shows the Google Tasks controls, list picker and due offset when connected', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
 					makeOutput({
@@ -256,8 +244,8 @@ describe('DashboardPage', () => {
 	it('surfaces the last sync error and offers the options before enabling', async () => {
 		const node = (
 			<DashboardPage
-				email="test@csumb.edu"
-				sourceUrl="https://csumb.instructure.com/feeds/calendars/user_x.ics"
+				email='test@csumb.edu'
+				sourceUrl='https://csumb.instructure.com/feeds/calendars/user_x.ics'
 				courses={[{ code: 'CST463-01_2264' }]}
 				outputs={[
 					makeOutput({

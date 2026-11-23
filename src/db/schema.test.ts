@@ -48,10 +48,7 @@ describe('clampDueOffsetDays', () => {
 
 	it('falls back to the default for a missing or non-numeric value', () => {
 		assert.equal(clampDueOffsetDays(Number.NaN), DEFAULT_DUE_OFFSET_DAYS)
-		assert.equal(
-			clampDueOffsetDays(Number.POSITIVE_INFINITY),
-			DEFAULT_DUE_OFFSET_DAYS,
-		)
+		assert.equal(clampDueOffsetDays(Number.POSITIVE_INFINITY), DEFAULT_DUE_OFFSET_DAYS)
 	})
 })
 
@@ -82,10 +79,7 @@ describe('clampSkipOlderThanDays', () => {
 	})
 
 	it('falls back to the default for a missing or non-numeric value', () => {
-		assert.equal(
-			clampSkipOlderThanDays(Number.NaN),
-			DEFAULT_SKIP_OLDER_THAN_DAYS,
-		)
+		assert.equal(clampSkipOlderThanDays(Number.NaN), DEFAULT_SKIP_OLDER_THAN_DAYS)
 	})
 })
 
@@ -139,8 +133,10 @@ describe('task statuses migration', () => {
 				],
 			)
 			assert.ok(
-				!('dismissed' in
-					(sqlite.prepare('SELECT * FROM google_tasks_settings').get() as object)),
+				!(
+					'dismissed' in
+					(sqlite.prepare('SELECT * FROM google_tasks_settings').get() as object)
+				),
 			)
 		} finally {
 			sqlite.close()
@@ -182,10 +178,7 @@ describe('per-output Google Tasks migration', () => {
 				},
 			])
 			sqlite.exec("DELETE FROM output_calendars WHERE id = 'a'")
-			assert.deepEqual(
-				sqlite.prepare('SELECT * FROM google_tasks_settings').all(),
-				[],
-			)
+			assert.deepEqual(sqlite.prepare('SELECT * FROM google_tasks_settings').all(), [])
 		} finally {
 			sqlite.close()
 		}

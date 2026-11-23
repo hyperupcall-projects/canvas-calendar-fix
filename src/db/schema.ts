@@ -1,10 +1,4 @@
-import {
-	sqliteTable,
-	text,
-	integer,
-	unique,
-	primaryKey,
-} from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, unique, primaryKey } from 'drizzle-orm/sqlite-core'
 import { user } from './auth-schema.ts'
 
 export const MAX_OUTPUT_CALENDARS = 8
@@ -66,10 +60,7 @@ export const outputCalendars = sqliteTable(
 		createdAt: integer('created_at', { mode: 'timestamp' }).notNull(),
 	},
 	(table) => [
-		unique('output_calendars_calendar_position').on(
-			table.calendarId,
-			table.position,
-		),
+		unique('output_calendars_calendar_position').on(table.calendarId, table.position),
 	],
 )
 
@@ -83,9 +74,7 @@ export const outputCalendarCourses = sqliteTable(
 			.notNull()
 			.references(() => courses.id, { onDelete: 'cascade' }),
 	},
-	(table) => [
-		primaryKey({ columns: [table.outputCalendarId, table.courseId] }),
-	],
+	(table) => [primaryKey({ columns: [table.outputCalendarId, table.courseId] })],
 )
 
 /** Independent task settings and sync state for each output calendar. */
@@ -103,9 +92,7 @@ export const googleTasksSettings = sqliteTable('google_tasks_settings', {
 	enabled: integer('enabled', { mode: 'boolean' }).notNull().default(false),
 	listName: text('list_name'),
 	listId: text('list_id'),
-	dueOffsetDays: integer('due_offset_days')
-		.notNull()
-		.default(DEFAULT_DUE_OFFSET_DAYS),
+	dueOffsetDays: integer('due_offset_days').notNull().default(DEFAULT_DUE_OFFSET_DAYS),
 	skipOlderThanDays: integer('skip_older_than_days')
 		.notNull()
 		.default(DEFAULT_SKIP_OLDER_THAN_DAYS),
@@ -137,10 +124,7 @@ export function clampDueOffsetDays(value: number): number {
 	if (!Number.isFinite(value)) {
 		return DEFAULT_DUE_OFFSET_DAYS
 	}
-	return Math.min(
-		MAX_DUE_OFFSET_DAYS,
-		Math.max(MIN_DUE_OFFSET_DAYS, Math.trunc(value)),
-	)
+	return Math.min(MAX_DUE_OFFSET_DAYS, Math.max(MIN_DUE_OFFSET_DAYS, Math.trunc(value)))
 }
 
 export function dueOffsetOptions(): number[] {
@@ -164,11 +148,7 @@ export function clampSkipOlderThanDays(value: number): number {
 
 export function skipOlderThanOptions(): number[] {
 	const options: number[] = []
-	for (
-		let days = MIN_SKIP_OLDER_THAN_DAYS;
-		days <= MAX_SKIP_OLDER_THAN_DAYS;
-		days += 1
-	) {
+	for (let days = MIN_SKIP_OLDER_THAN_DAYS; days <= MAX_SKIP_OLDER_THAN_DAYS; days += 1) {
 		options.push(days)
 	}
 	return options

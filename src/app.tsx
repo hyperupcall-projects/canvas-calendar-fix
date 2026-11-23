@@ -91,10 +91,7 @@ function parseDir(value: string | undefined, sort: AdminSort): AdminDir {
 	return sort === 'email' ? 'asc' : 'desc'
 }
 
-async function copyAuthCookies(
-	source: Response,
-	destination: Response,
-): Promise<void> {
+async function copyAuthCookies(source: Response, destination: Response): Promise<void> {
 	const headers = source.headers as Headers & { getSetCookie?: () => string[] }
 	const setCookies = headers.getSetCookie?.() ?? []
 	if (setCookies.length > 0) {
@@ -160,10 +157,7 @@ function isBeta(c: Context<AppEnv>): boolean {
 
 // The Google Tasks feature sits behind ?beta=true, so every link back to the
 // dashboard has to carry the flag or its controls would vanish mid-task.
-function dashboardUrl(
-	beta: boolean,
-	params: Record<string, string> = {},
-): string {
+function dashboardUrl(beta: boolean, params: Record<string, string> = {}): string {
 	const parts = Object.entries(params).map(
 		([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
 	)
@@ -177,10 +171,7 @@ function redirectWithError(message: string, beta: boolean): string {
 	return dashboardUrl(beta, { error: message })
 }
 
-async function includeCourseInOutputs(
-	outputIds: string[],
-	courseIds: string[],
-) {
+async function includeCourseInOutputs(outputIds: string[], courseIds: string[]) {
 	for (const outputId of outputIds) {
 		for (const courseId of courseIds) {
 			await db
@@ -277,8 +268,9 @@ app.get('/dashboard', async (c) => {
 		return c.redirect('/sign-in')
 	}
 	const beta = isBeta(c)
-	const { calendar, courseRows, outputRows, memberships } =
-		await loadCalendarForUser(currentUser.id)
+	const { calendar, courseRows, outputRows, memberships } = await loadCalendarForUser(
+		currentUser.id,
+	)
 	const enabledByOutput = new Map<string, string[]>()
 	for (const row of memberships) {
 		const codes = enabledByOutput.get(row.outputCalendarId) ?? []
@@ -301,10 +293,7 @@ app.get('/dashboard', async (c) => {
 				.map((list) => list.title)
 				.filter((title) => title.length > 0)
 		} catch (error) {
-			console.error(
-				'[google-tasks] Could not load task lists for the dashboard:',
-				error,
-			)
+			console.error('[google-tasks] Could not load task lists for the dashboard:', error)
 			taskListNames = []
 		}
 	}
@@ -321,9 +310,7 @@ app.get('/dashboard', async (c) => {
 				feedUrl: feedUrlFor(row.publicToken),
 				enabledCodes: enabledByOutput.get(row.id) ?? [],
 				addCanvasLink: row.addCanvasLink,
-				googleTasks: settings.find(
-					(setting) => setting.outputCalendarId === row.id,
-				),
+				googleTasks: settings.find((setting) => setting.outputCalendarId === row.id),
 			}))}
 			googleConfigured={googleConfigured}
 			googleConnected={googleConnected}
@@ -356,14 +343,10 @@ app.post('/dashboard/google/connect', async (c) => {
 	}
 	const beta = isBeta(c)
 	if (!googleConfigured) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not configured.', beta),
-		)
+		return c.redirect(redirectWithError('Google Tasks sync is not configured.', beta))
 	}
 	if (!beta) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not available.', beta),
-		)
+		return c.redirect(redirectWithError('Google Tasks sync is not available.', beta))
 	}
 
 	try {
@@ -393,9 +376,7 @@ app.post('/dashboard/google/connect', async (c) => {
 	} catch (error) {
 		console.error('[google] Could not start the Google connection:', error)
 		const message =
-			error instanceof Error
-				? error.message
-				: 'Could not start the Google connection.'
+			error instanceof Error ? error.message : 'Could not start the Google connection.'
 		return c.redirect(redirectWithError(message, beta))
 	}
 })
@@ -407,16 +388,12 @@ app.post('/dashboard/google/disconnect', async (c) => {
 	}
 	const beta = isBeta(c)
 	if (!beta) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not available.', beta),
-		)
+		return c.redirect(redirectWithError('Google Tasks sync is not available.', beta))
 	}
 
 	const linked = await googleAccountFor(currentUser.id)
 	if (!linked) {
-		return c.redirect(
-			redirectWithError('No Google account is connected.', beta),
-		)
+		return c.redirect(redirectWithError('No Google account is connected.', beta))
 	}
 
 	try {
@@ -427,9 +404,7 @@ app.post('/dashboard/google/disconnect', async (c) => {
 	} catch (error) {
 		console.error('[google] Could not disconnect the Google account:', error)
 		const message =
-			error instanceof Error
-				? error.message
-				: 'Could not disconnect the Google account.'
+			error instanceof Error ? error.message : 'Could not disconnect the Google account.'
 		return c.redirect(redirectWithError(message, beta))
 	}
 
@@ -456,9 +431,7 @@ app.post('/dashboard/outputs/:id/google/settings', async (c) => {
 	}
 	const beta = isBeta(c)
 	if (!googleConfigured || !beta) {
-		return c.redirect(
-			redirectWithError('Google Tasks sync is not available.', beta),
-		)
+		return c.redirect(redirectWithError('Google Tasks sync is not available.', beta))
 	}
 
 	const outputId = c.req.param('id')
@@ -478,9 +451,7 @@ app.post('/dashboard/outputs/:id/google/settings', async (c) => {
 		String(body.listName ?? previous?.listName ?? ''),
 	)
 	const dueOffsetDays = clampDueOffsetDays(
-		Number(
-			body.dueOffsetDays ?? previous?.dueOffsetDays ?? DEFAULT_DUE_OFFSET_DAYS,
-		),
+		Number(body.dueOffsetDays ?? previous?.dueOffsetDays ?? DEFAULT_DUE_OFFSET_DAYS),
 	)
 	const skipOlderThanDays = clampSkipOlderThanDays(
 		Number(
@@ -493,8 +464,7 @@ app.post('/dashboard/outputs/:id/google/settings', async (c) => {
 	// Renaming points at a different list, so the stored id is dropped and the
 	// name is resolved again on the next sync. The previous list, and its tasks,
 	// are left untouched.
-	const listId =
-		previous?.listName === listName ? (previous.listId ?? null) : null
+	const listId = previous?.listName === listName ? (previous.listId ?? null) : null
 
 	await db
 		.insert(googleTasksSettings)
@@ -520,9 +490,7 @@ app.post('/dashboard/outputs/:id/google/settings', async (c) => {
 		enforceSkipThreshold: true,
 	})
 	if (!result.ok) {
-		return c.redirect(
-			redirectWithError(`Settings saved, but: ${result.message}`, beta),
-		)
+		return c.redirect(redirectWithError(`Settings saved, but: ${result.message}`, beta))
 	}
 	const summary = `${result.added} added, ${result.updated} updated, ${result.removed} removed, ${result.skipped} unchanged.`
 	return c.redirect(dashboardUrl(beta, { synced: summary }))
@@ -640,13 +608,9 @@ app.post('/dashboard/outputs', async (c) => {
 	}
 	const beta = isBeta(c)
 
-	const { calendar, courseRows, outputRows } = await loadCalendarForUser(
-		currentUser.id,
-	)
+	const { calendar, courseRows, outputRows } = await loadCalendarForUser(currentUser.id)
 	if (!calendar) {
-		return c.redirect(
-			redirectWithError('Save a Canvas calendar URL first.', beta),
-		)
+		return c.redirect(redirectWithError('Save a Canvas calendar URL first.', beta))
 	}
 
 	const position = nextOutputPosition(outputRows)
@@ -681,9 +645,7 @@ app.post('/dashboard/outputs/:id/delete', async (c) => {
 		return c.redirect(redirectWithError('That calendar was not found.', beta))
 	}
 	if (outputRows.length <= 1) {
-		return c.redirect(
-			redirectWithError('Keep at least one output calendar.', beta),
-		)
+		return c.redirect(redirectWithError('Keep at least one output calendar.', beta))
 	}
 
 	// Any Google task list this calendar fed stays put. Removing it would throw
@@ -700,9 +662,7 @@ app.post('/dashboard/outputs/:id', async (c) => {
 	const beta = isBeta(c)
 
 	const outputId = c.req.param('id')
-	const { calendar, courseRows, outputRows } = await loadCalendarForUser(
-		currentUser.id,
-	)
+	const { calendar, courseRows, outputRows } = await loadCalendarForUser(currentUser.id)
 	const output = outputRows.find((row) => row.id === outputId)
 	if (!calendar || !output) {
 		return c.redirect(redirectWithError('That calendar was not found.', beta))
@@ -788,9 +748,7 @@ app.get('/feed/:token', async (c) => {
 			enabled,
 			output.name,
 			output.addCanvasLink,
-			taskSettings?.enabled
-				? taskEventMetadata(taskSettings.taskStatuses)
-				: undefined,
+			taskSettings?.enabled ? taskEventMetadata(taskSettings.taskStatuses) : undefined,
 		)
 		// A calendar app refreshing its feed is the signal that this calendar is
 		// in use, so it doubles as the sync trigger. Deliberately not awaited: the
@@ -833,15 +791,12 @@ app.post('/admin/login', async (c) => {
 		.toLowerCase()
 	if (!isAdminEmail(email)) {
 		return c.html(
-			<AdminLoginPage error="This email is not authorized for admin access." />,
+			<AdminLoginPage error='This email is not authorized for admin access.' />,
 			403,
 		)
 	}
 	if (!isSupportedSchoolEmail(email)) {
-		return c.html(
-			<AdminLoginPage error={unsupportedEmailMessage(email)} />,
-			400,
-		)
+		return c.html(<AdminLoginPage error={unsupportedEmailMessage(email)} />, 400)
 	}
 
 	try {

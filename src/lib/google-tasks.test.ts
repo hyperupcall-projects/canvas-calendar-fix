@@ -14,9 +14,7 @@ type Call = { method: string; url: string; body: unknown }
 
 const realFetch = globalThis.fetch
 
-function stubFetch(
-	handler: (call: Call) => { status?: number; body?: unknown },
-): Call[] {
+function stubFetch(handler: (call: Call) => { status?: number; body?: unknown }): Call[] {
 	const calls: Call[] = []
 	globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 		const call: Call = {
@@ -136,9 +134,7 @@ describe('ensureTaskList', () => {
 			if (call.url.endsWith('/list-1')) {
 				return { status: 404 }
 			}
-			return call.method === 'GET'
-				? { body: { items: [] } }
-				: { body: { id: 'list-2' } }
+			return call.method === 'GET' ? { body: { items: [] } } : { body: { id: 'list-2' } }
 		})
 		const result = await ensureTaskList('token', {
 			listId: 'list-1',
@@ -219,9 +215,7 @@ describe('error handling', () => {
 				status: 400,
 				body: { error: { message: 'Request contains an invalid argument.' } },
 			}))
-			await assert.rejects(() =>
-				insertTask('token', 'list-1', { title: 'x', due: 'y' }),
-			)
+			await assert.rejects(() => insertTask('token', 'list-1', { title: 'x', due: 'y' }))
 		} finally {
 			console.error = originalConsoleError
 		}
@@ -229,18 +223,14 @@ describe('error handling', () => {
 		const output = logged.flat().map(String).join('\n')
 		assert.match(output, /\[google-tasks\] POST .* failed with HTTP 400/)
 		assert.match(output, /GoogleTasksError/)
-		assert.match(
-			output,
-			/response body: .*Request contains an invalid argument\./,
-		)
+		assert.match(output, /response body: .*Request contains an invalid argument\./)
 	})
 
 	it('raises GoogleTasksError carrying the status', async () => {
 		stubFetch(() => ({ status: 403 }))
 		await assert.rejects(
 			() => insertTask('token', 'list-1', { title: 'x', due: 'y' }),
-			(error: unknown) =>
-				error instanceof GoogleTasksError && error.status === 403,
+			(error: unknown) => error instanceof GoogleTasksError && error.status === 403,
 		)
 	})
 

@@ -121,9 +121,7 @@ async function request(
 }
 
 /** Every task list the account already has, for the picker and name lookup. */
-export async function listTaskLists(
-	accessToken: string,
-): Promise<GoogleTaskList[]> {
+export async function listTaskLists(accessToken: string): Promise<GoogleTaskList[]> {
 	const lists: GoogleTaskList[] = []
 	let pageToken: string | undefined
 	do {
@@ -143,10 +141,7 @@ export async function listTaskLists(
 	return lists
 }
 
-async function createTaskList(
-	accessToken: string,
-	title: string,
-): Promise<string> {
+async function createTaskList(accessToken: string, title: string): Promise<string> {
 	const created = (await request(accessToken, '/users/@me/lists', {
 		method: 'POST',
 		body: { title },

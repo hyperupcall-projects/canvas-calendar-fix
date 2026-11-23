@@ -36,7 +36,7 @@ body {
 
 .banner.error {
 	background: mistyrose;
-	}
+}
 
 .banner.success {
 	background: honeydew;
@@ -58,7 +58,7 @@ body {
 .output-calendar {
 	margin: 1.25em 0 0;
 	padding: 1em;
-	padding-bottom: .25em;
+	padding-bottom: 0.25em;
 	border: 1px solid #ccc;
 	background: #fff;
 }
@@ -125,7 +125,7 @@ body {
 
 .button-secondary {
 	color: white;
-   border-radius: 4px;
-   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
-   background: rgb(66, 184, 221);
+	border-radius: 4px;
+	text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+	background: rgb(66, 184, 221);
 }

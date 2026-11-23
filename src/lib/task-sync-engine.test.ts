@@ -19,8 +19,7 @@ const {
 const { clearSourceCache } = await import('./ics.ts')
 const { syncGoogleTasks } = await import('./task-sync.ts')
 
-const SOURCE =
-	'https://csumb.instructure.com/feeds/calendars/user_sync_test.ics'
+const SOURCE = 'https://csumb.instructure.com/feeds/calendars/user_sync_test.ics'
 
 // Pinning the sync clock keeps the age cutoffs deterministic as the real date
 // moves past the fixed dates in this feed.
@@ -132,12 +131,9 @@ function installFakeGoogle(): void {
 			const list = lists.get(taskCollection[1])
 			assert.ok(list)
 			if (method === 'GET') {
-				return new Response(
-					JSON.stringify({ items: [...list.tasks.values()] }),
-					{
-						status: 200,
-					},
-				)
+				return new Response(JSON.stringify({ items: [...list.tasks.values()] }), {
+					status: 200,
+				})
 			}
 			const id = `task-${nextId++}`
 			list.tasks.set(id, { id, ...body })
@@ -154,10 +150,9 @@ function installFakeGoogle(): void {
 				list.title = body.title
 				return new Response('{}', { status: 200 })
 			}
-			return new Response(
-				JSON.stringify({ id: listItem[1], title: list.title }),
-				{ status: 200 },
-			)
+			return new Response(JSON.stringify({ id: listItem[1], title: list.title }), {
+				status: 200,
+			})
 		}
 
 		if (method === 'POST' && /\/users\/@me\/lists$/.test(url)) {
@@ -271,9 +266,7 @@ before(async () => {
 		position: 1,
 		createdAt: now,
 	})
-	await db
-		.insert(outputCalendarCourses)
-		.values({ outputCalendarId: outputId, courseId })
+	await db.insert(outputCalendarCourses).values({ outputCalendarId: outputId, courseId })
 	await db.insert(googleTasksSettings).values({
 		outputCalendarId: outputId,
 		userId,
@@ -523,32 +516,28 @@ describe('syncGoogleTasks', () => {
 describe('output calendar isolation', () => {
 	it('keeps filters, due dates, saves and sync intervals independent in a shared list', async () => {
 		const otherId = crypto.randomUUID()
-		await db
-			.insert(outputCalendars)
-			.values({
-				id: otherId,
-				calendarId,
-				name: 'Other',
-				publicToken: crypto.randomUUID(),
-				position: 2,
-				createdAt: now,
-			})
+		await db.insert(outputCalendars).values({
+			id: otherId,
+			calendarId,
+			name: 'Other',
+			publicToken: crypto.randomUUID(),
+			position: 2,
+			createdAt: now,
+		})
 		const primary = await settingsRow()
 		assert.ok(primary?.listId)
 		await db
 			.update(googleTasksSettings)
 			.set({ enabled: true, dueOffsetDays: 7 })
 			.where(eq(googleTasksSettings.outputCalendarId, outputId))
-		await db
-			.insert(googleTasksSettings)
-			.values({
-				outputCalendarId: otherId,
-				userId,
-				enabled: true,
-				listName: primary.listName,
-				listId: primary.listId,
-				dueOffsetDays: 2,
-			})
+		await db.insert(googleTasksSettings).values({
+			outputCalendarId: otherId,
+			userId,
+			enabled: true,
+			listName: primary.listName,
+			listId: primary.listId,
+			dueOffsetDays: 2,
+		})
 		feed = calendarFeed([homework3Moved])
 		clearSourceCache()
 		try {
@@ -562,8 +551,7 @@ describe('output calendar isolation', () => {
 			await syncGoogleTasks(userId, otherId, { now: TEST_NOW })
 			const owned = (id: string) =>
 				storedTasks().filter(
-					(task) =>
-						!task.deleted && task.notes?.includes(`[canvas-output:${id}]`),
+					(task) => !task.deleted && task.notes?.includes(`[canvas-output:${id}]`),
 				)
 			assert.equal(owned(outputId).length, 1)
 			assert.equal(owned(otherId).length, 1)
@@ -802,7 +790,10 @@ describe('Save & Sync', () => {
 		clearSourceCache()
 		await saveAndSync(outputId, TWO_DAYS_LATER)
 		assert.equal(liveTask('event-just-due'), undefined)
-		assert.match((await settingsRow())?.taskStatuses ?? '', /"event-just-due":"completed"/)
+		assert.match(
+			(await settingsRow())?.taskStatuses ?? '',
+			/"event-just-due":"completed"/,
+		)
 
 		await db
 			.update(googleTasksSettings)
@@ -815,8 +806,7 @@ describe('Save & Sync', () => {
 
 	it('keeps a completed task completed when its due date moves', async () => {
 		const done = storedTasks().find(
-			(task) =>
-				task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+			(task) => task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
 		)
 		assert.ok(done)
 		const before = done.due
@@ -836,8 +826,7 @@ describe('Save & Sync', () => {
 
 	it('reopening a completed task clears its status', async () => {
 		const done = storedTasks().find(
-			(task) =>
-				task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+			(task) => task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
 		)
 		assert.ok(done)
 		done.status = 'needsAction'
@@ -848,8 +837,7 @@ describe('Save & Sync', () => {
 
 	it('records a deleted status when a completed task is then deleted', async () => {
 		const done = storedTasks().find(
-			(task) =>
-				task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
+			(task) => task.notes?.includes('[canvas:event-just-due]') && !task.deleted,
 		)
 		assert.ok(done)
 		done.status = 'completed'

@@ -41,10 +41,7 @@ describe('http routes', () => {
 			headers: { 'content-type': 'application/x-www-form-urlencoded' },
 		})
 		assert.equal(response.status, 400)
-		assert.match(
-			await response.text(),
-			/You must sign in with your school account/,
-		)
+		assert.match(await response.text(), /You must sign in with your school account/)
 	})
 
 	it('points an unsupported .edu address at the support group', async () => {
@@ -199,8 +196,7 @@ describe('http routes', () => {
 			await db.insert(calendars).values({
 				id: calendarId,
 				userId,
-				sourceUrl:
-					'https://csumb.instructure.com/feeds/calendars/user_reset.ics',
+				sourceUrl: 'https://csumb.instructure.com/feeds/calendars/user_reset.ics',
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -232,17 +228,12 @@ describe('http routes', () => {
 			assert.equal(response.headers.get('location'), '/dashboard?reset=1')
 
 			assert.equal(
-				(await db.select().from(calendars).where(eq(calendars.id, calendarId)))
-					.length,
+				(await db.select().from(calendars).where(eq(calendars.id, calendarId))).length,
 				0,
 			)
 			assert.equal(
-				(
-					await db
-						.select()
-						.from(courses)
-						.where(eq(courses.calendarId, calendarId))
-				).length,
+				(await db.select().from(courses).where(eq(courses.calendarId, calendarId)))
+					.length,
 				0,
 			)
 			assert.equal(
@@ -404,11 +395,7 @@ describe('http routes', () => {
 	})
 
 	it('hides Google Tasks and reports it unavailable without credentials', async () => {
-		assert.equal(
-			googleConfigured,
-			false,
-			'this test covers the unconfigured case',
-		)
+		assert.equal(googleConfigured, false, 'this test covers the unconfigured case')
 
 		const now = new Date()
 		const userId = crypto.randomUUID()
@@ -446,10 +433,7 @@ describe('http routes', () => {
 				{ method: 'POST', headers: { cookie } },
 			)
 			assert.equal(response.status, 302)
-			assert.match(
-				response.headers.get('location') ?? '',
-				/error=.*not%20available/,
-			)
+			assert.match(response.headers.get('location') ?? '', /error=.*not%20available/)
 		} finally {
 			await db.delete(user).where(eq(user.id, userId))
 		}

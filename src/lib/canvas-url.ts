@@ -15,9 +15,7 @@ export function assertCanvasFeedUrl(raw: string): URL {
 		throw new Error('The calendar URL must use https.')
 	}
 	if (!url.hostname.endsWith(CANVAS_HOST_SUFFIX)) {
-		throw new Error(
-			`Only Canvas calendar feeds from ${CANVAS_HOST_SUFFIX} are allowed.`,
-		)
+		throw new Error(`Only Canvas calendar feeds from ${CANVAS_HOST_SUFFIX} are allowed.`)
 	}
 	return url
 }

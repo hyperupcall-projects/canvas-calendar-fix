@@ -1,36 +1,32 @@
 import { raw } from 'hono/html'
 
-export function Layout(props: {
-	title: string
-	nav?: unknown
-	children?: unknown
-}) {
+export function Layout(props: { title: string; nav?: unknown; children?: unknown }) {
 	return (
 		<>
 			{raw('<!DOCTYPE html>')}
-			<html lang="en">
+			<html lang='en'>
 				<head>
-					<meta charset="utf-8" />
-					<meta name="viewport" content="width=device-width, initial-scale=1" />
+					<meta charset='utf-8' />
+					<meta name='viewport' content='width=device-width, initial-scale=1' />
 					<title>{props.title}</title>
-					<link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+					<link rel='icon' href='/favicon.svg' type='image/svg+xml' />
 					<link
-						rel="stylesheet"
-						href="https://cdn.jsdelivr.net/npm/purecss@3.0.0/build/pure-min.css"
-						integrity="sha384-X38yfunGUhNzHpBaEBsWLO+A0HDYOQi8ufWDkZ0k9e0eXz/tH3II7uKZ9msv++Ls"
-						crossorigin="anonymous"
+						rel='stylesheet'
+						href='https://cdn.jsdelivr.net/npm/purecss@3.0.0/build/pure-min.css'
+						integrity='sha384-X38yfunGUhNzHpBaEBsWLO+A0HDYOQi8ufWDkZ0k9e0eXz/tH3II7uKZ9msv++Ls'
+						crossorigin='anonymous'
 					/>
-					<link rel="stylesheet" href="/styles.css" />
+					<link rel='stylesheet' href='/styles.css' />
 				</head>
 				<body>
-					<header class="pure-menu pure-menu-horizontal">
+					<header class='pure-menu pure-menu-horizontal'>
 						{props.nav ?? (
-							<a class="pure-menu-heading pure-menu-link" href="/">
+							<a class='pure-menu-heading pure-menu-link' href='/'>
 								Canvas Calendar Fix
 							</a>
 						)}
 					</header>
-					<main class="site-main">{props.children}</main>
+					<main class='site-main'>{props.children}</main>
 				</body>
 			</html>
 		</>
@@ -40,18 +36,20 @@ export function Layout(props: {
 export function UserNav(props: { email: string; isAdmin?: boolean }) {
 	return (
 		<>
-			<span class="pure-menu-heading" style="text-transform: none;">{props.email}</span>
-			<ul class="pure-menu-list">
+			<span class='pure-menu-heading' style='text-transform: none;'>
+				{props.email}
+			</span>
+			<ul class='pure-menu-list'>
 				{props.isAdmin ? (
-					<li class="pure-menu-item">
-						<a class="pure-menu-link" href="/admin">
+					<li class='pure-menu-item'>
+						<a class='pure-menu-link' href='/admin'>
 							Admin
 						</a>
 					</li>
 				) : null}
-				<li class="pure-menu-item">
-					<form method="post" action="/sign-out">
-						<button type="submit" class="pure-button">
+				<li class='pure-menu-item'>
+					<form method='post' action='/sign-out'>
+						<button type='submit' class='pure-button'>
 							Sign out
 						</button>
 					</form>
@@ -66,7 +64,7 @@ export function ErrorBanner(props: { message?: string | null }) {
 		return null
 	}
 	return (
-		<p class="banner error" role="alert">
+		<p class='banner error' role='alert'>
 			{props.message}
 		</p>
 	)
@@ -77,7 +75,7 @@ export function SuccessBanner(props: { message?: string | null }) {
 		return null
 	}
 	return (
-		<p class="banner success" role="status">
+		<p class='banner success' role='status'>
 			{props.message}
 		</p>
 	)

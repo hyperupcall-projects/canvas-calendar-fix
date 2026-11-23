@@ -79,9 +79,7 @@ export const auth = betterAuth({
 			if (ctx.path !== '/sign-in/magic-link') {
 				return
 			}
-			const email = String(
-				(ctx.body as { email?: string } | undefined)?.email ?? '',
-			)
+			const email = String((ctx.body as { email?: string } | undefined)?.email ?? '')
 			if (!isSupportedSchoolEmail(email)) {
 				throw new APIError('BAD_REQUEST', {
 					message: unsupportedEmailMessage(email),

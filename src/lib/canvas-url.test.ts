@@ -18,13 +18,9 @@ describe('assertCanvasFeedUrl', () => {
 	})
 
 	it('rejects other hosts and http', () => {
-		assert.throws(() =>
-			assertCanvasFeedUrl('http://csumb.instructure.com/feed.ics'),
-		)
+		assert.throws(() => assertCanvasFeedUrl('http://csumb.instructure.com/feed.ics'))
 		assert.throws(() => assertCanvasFeedUrl('https://evil.example/feed.ics'))
-		assert.throws(() =>
-			assertCanvasFeedUrl('https://notinstructure.com/feed.ics'),
-		)
+		assert.throws(() => assertCanvasFeedUrl('https://notinstructure.com/feed.ics'))
 		assert.throws(() => assertCanvasFeedUrl('not-a-url'))
 	})
 })

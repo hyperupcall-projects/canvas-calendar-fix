@@ -91,21 +91,13 @@ function isUtcMidnight(date: Date): boolean {
 	)
 }
 
-function utcMidnightFromParts(
-	year: number,
-	monthIndex: number,
-	day: number,
-): Date {
+function utcMidnightFromParts(year: number, monthIndex: number, day: number): Date {
 	return new Date(Date.UTC(year, monthIndex, day))
 }
 
 function asUtcMidnight(date: Date, useLocalDate: boolean): Date {
 	if (useLocalDate) {
-		return utcMidnightFromParts(
-			date.getFullYear(),
-			date.getMonth(),
-			date.getDate(),
-		)
+		return utcMidnightFromParts(date.getFullYear(), date.getMonth(), date.getDate())
 	}
 	return utcMidnightFromParts(
 		date.getUTCFullYear(),
@@ -133,11 +125,7 @@ function isUtcMidnightAllDaySpan(start: Date, end: Date): boolean {
 	)
 }
 
-function exclusiveAllDayEnd(
-	start: Date,
-	end: Date,
-	useLocalDate: boolean,
-): Date {
+function exclusiveAllDayEnd(start: Date, end: Date, useLocalDate: boolean): Date {
 	const endMidnight = asUtcMidnight(end, useLocalDate)
 	if (endMidnight.getTime() <= start.getTime()) {
 		return addUtcDays(start, 1)
@@ -195,8 +183,7 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 		}
 
 		const summary = textValue('summary' in value ? value.summary : undefined)
-		const start =
-			'start' in value && value.start instanceof Date ? value.start : null
+		const start = 'start' in value && value.start instanceof Date ? value.start : null
 		if (!start) {
 			continue
 		}
@@ -205,12 +192,10 @@ export function parseCalendar(ics: string): ParsedEvent[] {
 		// Left empty when the feed omits it. Anything keyed off a synthetic id
 		// would be treated as a brand new event on every parse.
 		const uid = 'uid' in value ? textValue(value.uid) : ''
-		const descriptionRaw =
-			'description' in value ? textValue(value.description) : ''
+		const descriptionRaw = 'description' in value ? textValue(value.description) : ''
 		const description = descriptionRaw.length > 0 ? descriptionRaw : undefined
 		const urlRaw = 'url' in value ? textValue(value.url) : ''
-		const url =
-			urlRaw.length > 0 ? (assignmentPageUrl(urlRaw) ?? urlRaw) : undefined
+		const url = urlRaw.length > 0 ? (assignmentPageUrl(urlRaw) ?? urlRaw) : undefined
 
 		events.push({
 			uid,
@@ -243,10 +228,7 @@ export function withEventMetadata(
 	metadata: Record<string, string>,
 ): string {
 	const line = Object.entries(metadata)
-		.map(
-			([key, value]) =>
-				`${key}:${value.replace(/[%:;\r\n]/g, encodeURIComponent)}`,
-		)
+		.map(([key, value]) => `${key}:${value.replace(/[%:;\r\n]/g, encodeURIComponent)}`)
 		.join(';')
 	return description ? `${description}\n\n---\n${line}` : `---\n${line}`
 }
@@ -278,9 +260,7 @@ export function buildFilteredCalendar(
 			end: event.end,
 			allDay: event.allDay,
 			summary: event.summary,
-			description: metadata
-				? withEventMetadata(description, metadata)
-				: description,
+			description: metadata ? withEventMetadata(description, metadata) : description,
 			url: event.url,
 		})
 	}
@@ -313,9 +293,7 @@ export async function fetchCalendarSource(
 			redirect: 'follow',
 		})
 		if (!response.ok) {
-			throw new Error(
-				`Canvas returned HTTP ${response.status} for that calendar URL.`,
-			)
+			throw new Error(`Canvas returned HTTP ${response.status} for that calendar URL.`)
 		}
 
 		const buffer = Buffer.from(await response.arrayBuffer())

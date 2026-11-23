@@ -12,8 +12,6 @@ serve(
 		port: env.PORT,
 	},
 	(info) => {
-		console.log(
-			`Canvas Calendar Fix listening on http://localhost:${info.port}`,
-		)
+		console.log(`Canvas Calendar Fix listening on http://localhost:${info.port}`)
 	},
 )
