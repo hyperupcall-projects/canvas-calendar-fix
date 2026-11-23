@@ -10,4 +10,5 @@ minimumReleaseAgeExclude:
   - pnpm
   - '@hyperupcall/markdownlint-config@0.5.2'
   - '@hyperupcall/npm-package-json-lint-config@0.2.0'
-  - '@hyperupcall/scripts-nodejs@0.15.1'
+  - '@hyperupcall/scripts-nodejs@0.15.1 || 0.17.0'
+  - '@hyperupcall/commitlint-config@0.2.0'
