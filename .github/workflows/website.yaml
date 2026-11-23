@@ -1,6 +1,9 @@
 name: 'Website'
 
 on:
+  push:
+    branches: ['main']
+  workflow_dispatch:
   workflow_call:
 
 permissions:
@@ -18,26 +21,26 @@ jobs:
       name: 'github-pages'
       url: '${{ steps.deployment.outputs.page_url }}'
     steps:
-    - uses: 'actions/checkout@v6'
-    - uses: 'actions/configure-pages@v5'
-      id: pages
-    - name: 'Prepare docs if missing'
-      shell: bash
-      run: |
-        if [ ! -d docs ]; then
-          mkdir -p docs/content docs/templates
-          printf '%s\n' 'base_url = "https://example.org"' > docs/config.toml
-          printf '+++\n+++\n\n' > docs/content/_index.md
-          cat README.md >> docs/content/_index.md
-          printf '%s\n' \
-            '<!doctype html><meta charset="utf-8">' \
-            '<main>{{ section.content | safe }}</main>' \
-            > docs/templates/index.html
-        fi
-    - uses: 'getzola/github-pages@066755243e69f508fd1a74739fbf1a65f656c790'
-      with:
-        zola_version: 'v0.23.0'
-        working_directory: 'docs'
-        build_flags: '--base-url "${{ steps.pages.outputs.base_url }}" --output-dir public'
-    - uses: 'actions/deploy-pages@v4'
-      id: deployment
+      - uses: 'actions/checkout@v6'
+      - uses: 'actions/configure-pages@v5'
+        id: pages
+      - name: 'Prepare docs if missing'
+        shell: bash
+        run: |
+          if [ ! -d docs ]; then
+            mkdir -p docs/content docs/templates
+            printf '%s\n' 'base_url = "https://example.org"' > docs/config.toml
+            printf '+++\n+++\n\n' > docs/content/_index.md
+            cat README.md >> docs/content/_index.md
+            printf '%s\n' \
+              '<!doctype html><meta charset="utf-8">' \
+              '<main>{{ section.content | safe }}</main>' \
+              > docs/templates/index.html
+          fi
+      - uses: 'getzola/github-pages@066755243e69f508fd1a74739fbf1a65f656c790'
+        with:
+          zola_version: 'v0.23.0'
+          working_directory: 'docs'
+          build_flags: '--base-url "${{ steps.pages.outputs.base_url }}" --output-dir public'
+      - uses: 'actions/deploy-pages@v4'
+        id: deployment
